@@ -1,0 +1,5 @@
+/var
+#PRE
+/foo/bar/bin stop
+#POST
+/foo/bar/bin start
