@@ -1,4 +1,7 @@
 #!/bin/bash
+#
+# System backup script
+# $Id$
 
 PATH=/usr/sbin:/usr/xpg4/bin:/usr/bin:${PATH}
 
@@ -15,6 +18,8 @@ OUTPUT=/dev/null
 function usage()
 {
 	echo "USAGE: $0 [-ehqrt] [-u dumparg] [-d dumpdev]"
+	echo "       $0 -l  # display current log file"
+	echo "       $0 -R  # register with logadm"
 	exit $1
 }
 
@@ -141,7 +146,7 @@ function show_log()
 }
 
 # process command line arguments
-while getopts d:ehlqrtu:v c
+while getopts d:ehlqrRtu:v c
 do
 	case $c in
 	# set ufsdump device
@@ -162,12 +167,17 @@ do
 	# don't rewind the tape
 	r)	NO_REWIND=1
 		;;
+	# register with logadm
+	R)	logadm -w backup -C 14 -p never -z 1 /brookes/backup/log/daily
+		exit 0
+		;;
 	# assume no tape is present
 	t)	NO_TAPE=1
 		;;
 	# set ufsdump arguments
 	u)	DUMP_ARG=${OPTARG}
 		;;
+	# print progress on console
 	v)	OUTPUT=/dev/stdout
 		;;
 	# show the log
@@ -176,6 +186,10 @@ do
 	esac
 done
 shift $((OPTIND - 1))
+
+: ${OUTPUT:=/dev/null}
+
+[[ -f $FILESYSTEMS ]] || { echo "$FILESYSTEMS not found"; usage 1 }
 
 # do it
 do_backup 2>&1 | tee -a ${LOGFILE} >${OUTPUT}
