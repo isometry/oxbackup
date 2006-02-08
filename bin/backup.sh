@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/ksh
 #
 # System backup script
 # $Id$
@@ -6,18 +6,13 @@
 PATH=/usr/sbin:/usr/xpg4/bin:/usr/bin:${PATH}
 
 BASE=/brookes/backup
-FILESYSTEMS=${BASE}/FILESYSTEMS
 LOGFILE=${BASE}/log/daily
 SCRIPT_BASE=${BASE}/scripts
-DUMP_CMD=ufsdump
-DUMP_ARG=0uf
-DUMP_DEV=/dev/rmt/0cbn
 HOSTNAME=$(hostname)
-OUTPUT=/dev/null
 
 function usage()
 {
-	echo "USAGE: $0 [-ehqrt] [-u dumparg] [-d dumpdev]"
+	echo "USAGE: $0 [-ehqrt] [-f file] [-u dumparg] [-d dumpdev]"
 	echo "       $0 -l  # display current log file"
 	echo "       $0 -R  # register with logadm"
 	exit $1
@@ -41,7 +36,7 @@ function process_scripts()
 				if [[ -x $j ]]
 				then
 					echo "--> executing $j"
-					(	# execute in a subshell; prefix each line with #
+					(	# execute in a subshell; prefix each output line with #
 						$j
 					) 2>&1 | sed 's/^/# /'
 				else
@@ -134,32 +129,49 @@ function hilite()
 	sed -e "s/${1}/[${2}m&[0m/"
 }
 
+function colourize()
+{
+	if [[ $NO_COLOUR -eq 1 ]]
+	then
+		cat
+	else
+		{ hilite 'DUMP IS DONE' '1;32' \
+		| hilite '.*failed.*' '1;31' \
+		| hilite '^-->.*' '1;37' }
+	fi
+
+}
+
 function show_log()
 {
 	# dump the log, without script output and with highlighting
 	cat ${LOGFILE} \
 	| grep -v '^#' \
-	| hilite 'DUMP IS DONE' '1;32' \
-	| hilite '.*failed.*' '1;31' \
-	| hilite '^-->.*' '1;37' \
+	| colourize \
 	| ${PAGER:-/usr/bin/more}
 }
 
 # process command line arguments
-while getopts d:ehlqrRtu:v c
+while getopts c:d:ef:hlnqrRtu:v c
 do
 	case $c in
+	# set dump command (default: ufsdump(1M))
+	c)	DUMP_CMD=${OPTARG}
+		;;
+	# set ufsdump arguments
+	u)	DUMP_ARG=${OPTARG}
+		;;
 	# set ufsdump device
 	d)	DUMP_DEV=${OPTARG}
+		;;
+	# print progress on console
+	v)	OUTPUT=/dev/stdout
 		;;
 	# don't eject the tape
 	e)	NO_EJECT=1
 		;;
-	# show help
-	h)	usage 0
-		;;
-	l)	show_log
-		exit 0
+	# don't colourize log
+	n)	NO_COLOUR=1
 		;;
 	# don't run pre/post scripts
 	q)	NO_SCRIPT=1
@@ -167,27 +179,39 @@ do
 	# don't rewind the tape
 	r)	NO_REWIND=1
 		;;
+	# assume no tape is present
+	t)	NO_TAPE=1
+		;;
+	f)	FILESYSTEMS=${OPTARG}
+		;;
+	# show help
+	h)	usage 0
+		;;
+	l)	show_log
+		exit 0
+		;;
 	# register with logadm
 	R)	logadm -w backup -C 14 -p never -z 1 /brookes/backup/log/daily
 		exit 0
 		;;
-	# assume no tape is present
-	t)	NO_TAPE=1
-		;;
-	# set ufsdump arguments
-	u)	DUMP_ARG=${OPTARG}
-		;;
-	# print progress on console
-	v)	OUTPUT=/dev/stdout
-		;;
-	# show the log
+	# default: exit with error
 	*)	usage 1
 		;;
 	esac
 done
 shift $((OPTIND - 1))
 
+# Set defaults
+: ${DUMP_CMD:=/usr/sbin/ufsdump}
+: ${DUMP_ARG:=0uf}
+: ${DUMP_DEV:=/dev/rmt/0cbn}
 : ${OUTPUT:=/dev/null}
+: ${NO_EJECT:=0}
+: ${NO_COLOUR:=0}
+: ${NO_SCRIPT:=0}
+: ${NO_REWIND:=0}
+: ${NO_TAPE:=0}
+: ${FILESYSTEMS:=${BASE}/FILESYSTEMS}
 
 [[ -f $FILESYSTEMS ]] || { echo "$FILESYSTEMS not found"; usage 1 }
 
