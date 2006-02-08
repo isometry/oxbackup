@@ -10,7 +10,7 @@ LOGFILE=${BASE}/log/daily
 SCRIPT_BASE=${BASE}/scripts
 HOSTNAME=$(hostname)
 
-function usage()
+function usage
 {
 	echo "USAGE: $0 [-ehqrt] [-f file] [-c dumpcmd] [-u dumparg] [-d dumpdev]"
 	echo "       $0 -l  # display current log file"
@@ -18,7 +18,7 @@ function usage()
 	exit $1
 }
 
-function process_scripts()
+function process_scripts
 {
 	SCRIPT_TYPE=$1
 	SCRIPT_PATH=${SCRIPT_BASE}/${SCRIPT_TYPE}
@@ -49,7 +49,7 @@ function process_scripts()
 	fi
 }
 
-function tape_status()
+function tape_status
 {
 	if [[ ${NO_TAPE} -eq 1 ]]
 	then
@@ -65,7 +65,7 @@ function tape_status()
 	fi
 }
 
-function tape_rewind()
+function tape_rewind
 {
 	if [[ ${NO_TAPE} -eq 1 || ${NO_REWIND} -eq 1 ]]
 	then
@@ -81,7 +81,7 @@ function tape_rewind()
 	fi
 }
 
-function tape_eject()
+function tape_eject
 {
 	if [[ ${NO_TAPE} -eq 1 || ${NO_EJECT} -eq 1 ]]
 	then
@@ -92,7 +92,7 @@ function tape_eject()
 	fi
 }
 
-function fs_dump()
+function fs_dump
 {
 	if [[ ${NO_TAPE} -eq 1 || ${NO_DUMP} -eq 1 ]]
 	then
@@ -103,7 +103,7 @@ function fs_dump()
 	fi
 }
 
-function fs_loop()
+function fs_loop
 {
 	echo "--> looping over ${FILESYSTEMS}"
 	grep -Ev -e '^\s*(#.*)?$' ${FILESYSTEMS} | while read i
@@ -112,7 +112,7 @@ function fs_loop()
 	done
 }
 
-function do_backup()
+function do_backup
 {
 	echo "===> STARTED: $(date +'%Y%m%d @%H:%M')"
 	tape_status
@@ -124,12 +124,12 @@ function do_backup()
 	echo "===> COMPLETED: $(date +'%Y%m%d @%H:%M')"
 }
 
-function hilite()
+function hilite
 {
 	sed -e "s/${1}/[${2}m&[0m/"
 }
 
-function colourize()
+function colourize
 {
 	if [[ $NO_COLOUR -eq 1 ]]
 	then
@@ -142,7 +142,7 @@ function colourize()
 
 }
 
-function show_log()
+function show_log
 {
 	# dump the log, without script output and with highlighting
 	cat ${LOGFILE} \
