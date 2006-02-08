@@ -135,11 +135,10 @@ function colourize
 	then
 		cat
 	else
-		{ hilite 'DUMP IS DONE' '1;32' \
+		  hilite 'DUMP IS DONE' '1;32' \
 		| hilite '.*failed.*' '1;31' \
-		| hilite '^-->.*' '1;37' }
+		| hilite '^-->.*' '1;37'
 	fi
-
 }
 
 function show_log
@@ -213,7 +212,11 @@ shift $((OPTIND - 1))
 : ${NO_TAPE:=0}
 : ${FILESYSTEMS:=${BASE}/FILESYSTEMS}
 
-[[ -f $FILESYSTEMS ]] || { echo "$FILESYSTEMS not found"; usage 1 }
+if [[ ! -f $FILESYSTEMS ]]
+then
+	echo "$FILESYSTEMS not found"
+	usage 1
+fi
 
 # do it
 do_backup 2>&1 | tee -a ${LOGFILE} >${OUTPUT}
