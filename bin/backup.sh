@@ -12,7 +12,7 @@ HOSTNAME=$(hostname)
 
 function usage()
 {
-	echo "USAGE: $0 [-ehqrt] [-f file] [-u dumparg] [-d dumpdev]"
+	echo "USAGE: $0 [-ehqrt] [-f file] [-c dumpcmd] [-u dumparg] [-d dumpdev]"
 	echo "       $0 -l  # display current log file"
 	echo "       $0 -R  # register with logadm"
 	exit $1
