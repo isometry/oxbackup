@@ -114,14 +114,16 @@ function fs_loop
 
 function do_backup
 {
-	echo "===> STARTED: $(date +'%Y%m%d @%H:%M')"
-	tape_status
-	process_scripts pre
-	tape_rewind
-	fs_loop
-	tape_eject
-	process_scripts post
-	echo "===> COMPLETED: $(date +'%Y%m%d @%H:%M')"
+	{
+		echo "===> STARTED: $(date +'%Y%m%d @%H:%M')"
+		tape_status
+		process_scripts pre
+		tape_rewind
+		fs_loop
+		tape_eject
+		process_scripts post
+		echo "===> COMPLETED: $(date +'%Y%m%d @%H:%M')"
+	} 2>&1 | tee -a ${LOGFILE} >${OUTPUT}
 }
 
 function hilite
@@ -150,8 +152,13 @@ function show_log
 	| ${PAGER:-/usr/bin/more}
 }
 
+function register_logadm
+{
+	logadm -w backup -C 14 -p never -z 1 "$LOGFILE"
+}
+
 # process command line arguments
-while getopts c:d:ef:hlnqrRtu:v c
+while getopts c:d:ef:hlLnqrtu:v c
 do
 	case $c in
 	# set dump command (default: ufsdump(1M))
@@ -186,12 +193,10 @@ do
 	# show help
 	h)	usage 0
 		;;
-	l)	show_log
-		exit 0
+	l)	ACTION=show_log
 		;;
 	# register with logadm
-	R)	logadm -w backup -C 14 -p never -z 1 /brookes/backup/log/daily
-		exit 0
+	L)	ACTION=register_logadm
 		;;
 	# default: exit with error
 	*)	usage 1
@@ -201,6 +206,7 @@ done
 shift $((OPTIND - 1))
 
 # Set defaults
+: ${ACTION:=do_backup}
 : ${DUMP_CMD:=/usr/sbin/ufsdump}
 : ${DUMP_ARG:=0uf}
 : ${DUMP_DEV:=/dev/rmt/0cbn}
@@ -212,11 +218,10 @@ shift $((OPTIND - 1))
 : ${NO_TAPE:=0}
 : ${FILESYSTEMS:=${BASE}/FILESYSTEMS}
 
-if [[ ! -f $FILESYSTEMS ]]
-then
+[[ ! -f $FILESYSTEMS ]] && {
 	echo "$FILESYSTEMS not found"
 	usage 1
-fi
+}
 
-# do it
-do_backup 2>&1 | tee -a ${LOGFILE} >${OUTPUT}
+# carry out action
+$ACTION
