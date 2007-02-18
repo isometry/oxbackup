@@ -8,9 +8,10 @@
 PATH=/usr/sbin:/usr/xpg4/bin:/usr/bin:$PATH
 
 BASE=$(cd $(dirname $0)/..; pwd)
-LOG_FILE=$BASE/log/daily
+LOG_FILE=$BASE/log/backup.log
 TOC_FILE=$BASE/log/toc
 EXCLUDE_FILE=$BASE/etc/exclude
+MAIL_USERS=
 SCRIPT_BASE=$BASE/scripts
 HOSTNAME=$(hostname)
 
@@ -20,12 +21,14 @@ function usage
 	echo "       $0 -c           # display current log file"
 }
 
-while getopts cd:r:s:vh c
+while getopts cd:mr:svh c
 do
 	case $c in
 	c)	ACTION=log_view
 		;;
 	d)	DUMP_DEVICE=$OPTARG
+		;;
+	m)	MAIL_LOG=1
 		;;
 	r)	RSH=$OPTARG
 		;;
@@ -52,6 +55,8 @@ shift $((OPTIND - 1))
 : ${FS_TYPES:=ufs zfs}
 : ${PAX_FORMAT:=xustar}
 : ${SNAPSHOT_UFS:=0}
+: ${MAIL_LOG:=0}
+: ${MAIL_USERS:=p0073773@brookes.ac.uk}
 
 # Set remote command defaults
 GREP=/usr/xpg4/bin/grep
@@ -62,7 +67,7 @@ PAX=/usr/bin/pax
 UFSDUMP=/usr/sbin/ufsdump
 
 # Calculate additional settings
-REMOTE=$(echo $DUMP_DEVICE | grep :)
+REMOTE=$(echo $DUMP_DEVICE | $GREP :)
 if [[ -n "$REMOTE" ]]; then
 	echo $DUMP_DEVICE | sed 's/:/ /' | read DUMP_HOST DUMP_DEVICE
 fi
@@ -76,7 +81,7 @@ function tape_status
 		echo "--> checking tape status"
 		${REMOTE:+$RSH $DUMP_HOST} $MT status
 	fi
-	STATUS=$?
+	NO_TAPE=$?
 }
 
 # Rewind tape
@@ -106,28 +111,38 @@ function tape_eject
 # Write data to tape
 function tape_write
 {
-	$DD if=$1 | ${REMOTE:+$RSH $DUMP_HOST} $DD of=$DUMP_DEVICE
+	if (( NO_TAPE > 0 )); then
+		echo "--> NO TAPE: piping to /dev/null"
+		cat >/dev/null
+	else
+		${REMOTE:+$RSH $DUMP_HOST} $DD of=$DUMP_DEVICE
+	fi
 }
 
 # Generate a ToC for the pending backup
 function toc_create
 {
+	echo "--> generating table of contents:"
 	if [[ -f $EXCLUDE_FILE ]]; then
-		EXCLUDE=$(grep -v # | rs -C# 1 < $EXCLUDE_FILE)
+		EXCLUDE=$($AWK 'BEGIN {printf "^(";} $0 !~ /#/ && $0 != "" {printf "%s%s", (i++>0)?"|":"", $0;} END {printf ")$";}' $EXCLUDE_FILE)
+	else
+		echo "--> exclude file not found"
+		EXCLUDE='^$'
 	fi
 	for t in $FS_TYPES; do
-		$AWK -v fstype="$t" -v exclude="$EXCLUDE" '
-		BEGIN {split(exclude, excludes, /#/)}
-		$3 = fstype && ! $2 in excludes {print $3, $1, $2}
-		' < /etc/mnttab
+		$AWK -v fstype=$t -v exclude=$EXCLUDE \
+			'$3 == fstype && $2 !~ exclude {print $3, $1, $2}' \
+		< /etc/mnttab
 	done | pr -tn > $TOC_FILE
 	STATUS=$?
+	cat $TOC_FILE
 }
 
 # Write backup ToC to dump device
 function toc_write
 {
-	tape_write $TOC_FILE
+	echo "--> writing table of contents"
+	echo Backup of $HOSTNAME: $(date +'%Y%m%d %H:%M') | cat - $TOC_FILE | tape_write
 	STATUS=$?
 }
 
@@ -176,20 +191,20 @@ function snap_destroy
 			fssnap -d $2
 			STATUS=$?
 		else
+			echo "--> no snapshot to destroy"
 			STATUS=0
 		fi
 		;;
 	esac
-
 }
 
 # Clean up snapshots on error trap
 function snap_trap
 {
-	echo "--> TRAPPED ERROR: destroying snapshot of $MOUNTPOINT"
-	snap_destroy $DEVICE $MOUNTPOINT
+	echo "==> TRAPPED ERROR"
+	snap_destroy $1 $2
 	if (( STATUS > 0 )); then
-		echo "--> FAILED TO DESTROY SNAPSHOT of $MOUNTPOINT"
+		echo "--> FAILED TO DESTROY SNAPSHOT of $2"
 	fi
 }
 
@@ -198,9 +213,9 @@ function snap_trap
 # $2 = MOUNTPOINT
 function dump_zfs
 {
-	echo "--> dumping $2 (pax)"
+	echo "==> dumping $2 via pax"
 	cd $1
-	tape_write <($PAX -w -pe -x $PAX_FORMAT -X .)
+	$PAX -w -pe -x $PAX_FORMAT -X . | tape_write
 	STATUS=$?
 	cd -
 }
@@ -210,51 +225,62 @@ function dump_zfs
 # $2 = MOUNTPOINT
 function dump_ufs
 {
-	echo "--> dumping $2 (ufsdump)"
-	tape_write <($UFSDUMP 0uf - $1)
+	echo "==> dumping $2 via ufsdump"
+	$UFSDUMP 0uf - $1 | tape_write
 	STATUS=$?
 }
 
 # Dump a filesystem
 function dump_fs
 {
-	DEVICE=$1	# FILESYSTEM in the case of zfs
-	MOUNTPOINT=$2
-	SNAPSHOT=$(snap_create $DEVICE $MOUNTPOINT)
+	SNAPSHOT=$(snap_create $1 $2)
 	if (( STATUS > 0 )); then
-		echo "--> FAILED TO CREATE SNAPSHOT of $MOUNTPOINT"
+		echo "--> FAILED TO CREATE SNAPSHOT of $2"
 		case $TYPE in
-			zfs)	echo "--> skipping dump of $MOUNTPOINT"
-					return $STATUS
-					;;
-			ufs)	echo "--> proceeding with live backup of $MOUNTPOINT"
-					SNAPSHOT=$DEVICE
-					;;
+		zfs)	echo "--> skipping dump of $2"
+				return $STATUS
+				;;
+		ufs)	echo "--> proceeding with live backup of $2"
+				SNAPSHOT=$1
+				;;
 		esac
 	fi
-	trap snap_trap 1 2 3 6 9 15
-	dump_$TYPE $SNAPSHOT $MOINTPOINT
+	trap "snap_trap $1 $2" 1 2 3 6 9 15
+	dump_$TYPE $SNAPSHOT $2
 	if (( STATUS > 0 )); then
-		echo "--> FAILED TO DUMP $MOINTPOINT"
+		echo "--> FAILED TO DUMP $2"
 	fi
-	snap_destroy $DEVICE $MOINTPOINT
+	RETVAL=$STATUS
+	snap_destroy $1 $2
 	if (( STATUS > 0 )); then
-		echo "--> FAILED TO DESTROY SNAPSHOT of $MOINTPOINT"
+		echo "--> FAILED TO DESTROY SNAPSHOT of $2"
 	fi
-	return $STATUS
+	return $RETVAL
+}
+
+# Mail interested parties
+function mail_users
+{
+	mailx -s "Message from $HOSTNAME: backup failed" $MAIL_USERS
 }
 
 # Backup all local filesystems
 function backup_all
 {
 	echo "===> STARTED: $(date +'%Y%m%d @%H:%M')"
+	tape_status
+	tape_rewind
 	toc_create
 	toc_write
 	while read NUM TYPE DEVICE MOUNTPOINT; do
 		dump_fs $DEVICE $MOUNTPOINT
+		(( STATUS > 0 )) && MAIL_LOG=1
 	done < $TOC_FILE
+	tape_eject
 	echo "===> COMPLETED: $(date +'%Y%m%d @%H:%M')"
 }
+
+exec 2>&1 | tee -a $LOG_FILE >$OUTPUT
 
 case $# in
 0)	backup_all
@@ -263,3 +289,8 @@ case $# in
 	usage 1
 	;;
 esac
+
+if (( MAIL_LOG > 0 )); then
+	mail_users < $LOG_FILE
+fi
+
