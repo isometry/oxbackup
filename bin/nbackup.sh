@@ -54,6 +54,7 @@ shift $((OPTIND - 1))
 : ${NO_EJECT:=0}
 : ${FS_TYPES:=ufs zfs}
 : ${PAX_FORMAT:=xustar}
+: ${SNAPSHOT_ZFS:=0}
 : ${SNAPSHOT_UFS:=0}
 : ${MAIL_LOG:=0}
 : ${MAIL_USERS:=p0073773@brookes.ac.uk}
@@ -146,116 +147,161 @@ function toc_write
 	STATUS=$?
 }
 
-# Create a snapshot of a zfs/ufs filesystem
-# $1 = FILESYSTEM/DEVICE
+# Create a snapshot of a zfs filesystem
+# $1 = FILESYSTEM
 # $2 = MOUNTPOINT
-function snap_create
+# Result: snapshot mountpoint or nothing if snapshot fails.
+function snap_create_zfs
 {
-	case $TYPE in
-	zfs)
+	HAS_SNAP=0
+	if (( SNAPSHOT_ZFS > 0 )); then
 		echo "--> creating zfs snapshot of $2" 1>&2
-		zfs destroy -f $1@backup >/dev/null 2>&1
+		SNAPSHOT=$2/.zfs/snapshot/backup
 		zfs snapshot $1@backup
-		STATUS=$?
-		echo $2/.zfs/snapshot/backup
-		;;
-	ufs)
-		if (( SNAPSHOT_UFS > 0 )); then
-			echo "--> creating ufs snapshot of $2" 1>&2
-			BACKING_STORE=$(mktemp); rm $BACKING_STORE
-			fssnap -F ufs -o raw,bs=$BACKING_STORE,unlink $1
-			STATUS=$?
+		if [[ $? -eq 0 && -d $SNAPSHOT ]]
+			echo $SNAPSHOT
+			HAS_SNAP=1
 		else
-			echo "--> not creating ufs snapshot of $2" 1>&2
-			echo $1
-			STATUS=0
+			echo "--> ERROR: snapshot creation failed: $2" 1>&2
+			echo "--> proceeding with non-snap backup" 1>&2
+			echo $2
 		fi
-		;;
-	esac
+	else
+		echo "--> skipped creation of zfs snapshot: $2" 1>&2
+		echo $2
+	fi
 }
 
-# Destroy the snapshot of a zfs/ufs filesystem
-# $1 = FILESYSTEM/DEVICE
+# Create a snapshot of a ufs filesystem
+# $1 = DEVICE
 # $2 = MOUNTPOINT
-function snap_destroy
+# Result: snapshot device or original device if snapshot fails.
+# Side-effects: sets HAS_SNAP=1 if snapshot created, 0 otherwise.
+function snap_create_ufs
 {
-	case $TYPE in
-	zfs)
-		echo "--> destroying zfs snapshot of $2"
-		zfs destroy -f $1@backup >/dev/null 2>&1
-		STATUS=$?
-		;;
-	ufs)
-		if (( SNAPSHOT_UFS > 0 )); then
-			echo "--> destroying ufs snapshot of $2"
-			fssnap -d $2
-			STATUS=$?
+	HAS_SNAP=0
+	if (( SNAPSHOT_UFS > 0 )); then
+		echo "--> creating ufs snapshot: $2" 1>&2
+		BACKING_STORE=$(mktemp); rm $BACKING_STORE
+		SNAPSHOT=$(fssnap -F ufs -o raw,bs=$BACKING_STORE,unlink $1)
+		if (( $? > 0 )); then
+			echo "--> ERROR: snapshot creation failed: $2" 1>&2
+			echo "--> proceeding with non-snap backup" 1>&2
+			echo $1
 		else
-			echo "--> no snapshot to destroy"
-			STATUS=0
+			HAS_SNAP=1
 		fi
-		;;
-	esac
+	else
+		echo "--> skipped creation of ufs snapshot: $2" 1>&2
+		echo $1
+	fi
+}
+
+# Destroy the snapshot of a zfs filesystem
+# $1 = FILESYSTEM
+# $2 = MOUNTPOINT
+# Result: nothing
+function snap_delete_zfs
+{
+	if (( HAS_SNAP > 0 )); then
+		echo "--> deleting zfs snapshot: $2"
+		zfs destroy -f $1@backup >/dev/null 2>&1
+		if (( $? > 0 )); then
+			echo "--> ERROR: snapshot deletion failed: $2"
+		else
+			HAS_SNAP=0
+		fi
+	else
+		echo "--> skipped deletion of zfs snapshot: $2"
+	fi
+}
+
+# Destroy the snapshot of a ufs filesystem
+# $1 = DEVICE
+# $2 = MOUNTPOINT
+# Result: nothing
+function snap_delete_ufs
+{
+	if (( SNAPSHOT_UFS > 0 && HAS_SNAP > 0 )); then
+		echo "--> deleting ufs snapshot: $2"
+		fssnap -d $2 >/dev/null 2>&1
+		if (( $? > 0 )); then
+			echo "--> ERROR: snapshot deletion failed: $2"
+		else
+			HAS_SNAP=0
+		fi
+	else
+		echo "--> skipped deletion of ufs snapshot: $2"
+	fi
 }
 
 # Clean up snapshots on error trap
+# $1 = TYPE
+# $2 = DEVICE/FILESYSTEM
+# $3 = MOUNTPOINT
+# Result: nothing
 function snap_trap
 {
-	echo "==> TRAPPED ERROR"
-	snap_destroy $1 $2
-	if (( STATUS > 0 )); then
-		echo "--> FAILED TO DESTROY SNAPSHOT of $2"
-	fi
+	echo "--> trapped error..."
+	snap_delete_$1 $2 $3
 }
 
 # Dump the directory passed as argument via pax
 # $1 = SNAPSHOT
 # $2 = MOUNTPOINT
-function dump_zfs
+function dump_pax
 {
-	echo "==> dumping $2 via pax"
 	cd $1
+	if (( $? > 0 )); then
+		echo "==> ERROR: $1 not found, dump of $2 failed: $(date +'%Y-%m-%d %H:%M')"
+		return 1
+	fi
+	echo "==> commencing dump of $2 via pax: $(date +'%Y-%m-%d %H:%M')"
 	$PAX -w -pe -x $PAX_FORMAT -X . | tape_write
-	STATUS=$?
+	if (( $? > 0 )); then
+		echo "--> ERROR: dump of $2 failed: $(date +'%Y-%m-%d %H:%M')"
+	else
+		echo "--> completed dump of $2: $(date +'%Y-%m-%d %H:%M')"
+	fi
 	cd -
 }
 
 # Dump the directory passed as argument via ufsdump
 # $1 = DEVICE or SNAPSHOT
 # $2 = MOUNTPOINT
-function dump_ufs
+function dump_ufsdump
 {
-	echo "==> dumping $2 via ufsdump"
+	echo "==> commencing dump of $2 via ufsdump: $(date +'%Y-%m-%d %H:%M')"
 	$UFSDUMP 0uf - $1 | tape_write
-	STATUS=$?
+	if (( $? > 0 )); then
+		echo "--> ERROR: dump of $2 failed: $(date +'%Y-%m-%d %H:%M')"
+	else
+		echo "--> completed dump of $2: $(date +'%Y-%m-%d %H:%M')"
+	fi
 }
 
-# Dump a filesystem
-function dump_fs
+# Backup a zfs filesystem
+# $1 = FILESYSTEM
+# $2 = MOUNTPOINT
+function backup_zfs
 {
-	SNAPSHOT=$(snap_create $1 $2)
-	if (( STATUS > 0 )); then
-		echo "--> FAILED TO CREATE SNAPSHOT of $2"
-		case $TYPE in
-		zfs)	echo "--> skipping dump of $2"
-				return $STATUS
-				;;
-		ufs)	echo "--> proceeding with live backup of $2"
-				SNAPSHOT=$1
-				;;
-		esac
-	fi
-	trap "snap_trap $1 $2" 1 2 3 6 9 15
-	dump_$TYPE $SNAPSHOT $2
-	if (( STATUS > 0 )); then
-		echo "--> FAILED TO DUMP $2"
-	fi
-	RETVAL=$STATUS
-	snap_destroy $1 $2
-	if (( STATUS > 0 )); then
-		echo "--> FAILED TO DESTROY SNAPSHOT of $2"
-	fi
-	return $RETVAL
+	SNAPSHOT=$(snap_create_zfs $1 $2)
+	trap "snap_trap zfs $1 $2" 1 2 3 6 9 15
+	dump_pax $SNAPSHOT $2
+	trap - 1 2 3 6 9 15
+	snap_delete $1 $2
+}
+
+# Backup a ufs filesystem
+# $1 = DEVICE
+# $2 = MOUNTPOINT
+function backup_ufs
+{
+	SNAPSHOT=$(snap_create_ufs $1 $2)
+	trap "snap_trap ufs $1 $2" 1 2 3 6 9 15
+	dump_ufsdump $SNAPSHOT $2
+	trap - 1 2 3 6 9 15
+	snap_delete $1 $2
 }
 
 # Mail interested parties
@@ -273,7 +319,7 @@ function backup_all
 	toc_create
 	toc_write
 	while read NUM TYPE DEVICE MOUNTPOINT; do
-		dump_fs $DEVICE $MOUNTPOINT
+		backup_$TYPE $DEVICE $MOUNTPOINT
 		(( STATUS > 0 )) && MAIL_LOG=1
 	done < $TOC_FILE
 	tape_eject
