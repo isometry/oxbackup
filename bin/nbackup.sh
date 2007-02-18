@@ -142,7 +142,7 @@ function toc_create
 function toc_write
 {
 	echo "--> writing table of contents"
-	echo Backup of $HOSTNAME: $(date +'%Y%m%d %H:%M') | cat - $TOC_FILE | tape_write
+	echo Backup of $HOSTNAME: $(date +'%Y-%m-%d %H:%M') | cat - $TOC_FILE | tape_write
 	STATUS=$?
 }
 
@@ -267,7 +267,7 @@ function mail_users
 # Backup all local filesystems
 function backup_all
 {
-	echo "===> STARTED: $(date +'%Y%m%d @%H:%M')"
+	echo "===> Backup commenced: $(date +'%Y-%m-%d %H:%M')"
 	tape_status
 	tape_rewind
 	toc_create
@@ -277,13 +277,11 @@ function backup_all
 		(( STATUS > 0 )) && MAIL_LOG=1
 	done < $TOC_FILE
 	tape_eject
-	echo "===> COMPLETED: $(date +'%Y%m%d @%H:%M')"
+	echo "===> Backup completed: $(date +'%Y-%m-%d %H:%M')"
 }
 
-exec 2>&1 | tee -a $LOG_FILE >$OUTPUT
-
 case $# in
-0)	backup_all
+0)	backup_all 2>&1 | tee -a $LOG_FILE >$OUTPUT
 	;;
 *)	echo "NOT IMPLEMENTED"
 	usage 1
