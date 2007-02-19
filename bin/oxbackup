@@ -11,6 +11,7 @@ BASE=$(cd $(dirname $0)/..; pwd)
 LOG_FILE=$BASE/log/backup.log
 TOC_FILE=$BASE/log/toc
 EXCLUDE_FILE=$BASE/etc/exclude
+SCRIPT_FILE=$BASE/etc/scripts
 NOSNAP_FILE=$BASE/etc/nosnap
 MAIL_USERS=
 SCRIPT_BASE=$BASE/scripts
@@ -54,8 +55,8 @@ done
 shift $((OPTIND - 1))
 
 # Set defaults
-: ${ACTION:=backup_all}
-: ${DUMP_DEVICE:=/dev/rmt/0cbn}
+: ${ACTION:=${1:-backup}}
+: ${DUMP_DEVICE:=/dev/rmt/0cn}
 : ${RSH:=rsh}
 : ${OUTPUT:=/dev/null}
 : ${NO_TAPE:=0}
@@ -94,18 +95,17 @@ function tape_status
 {
 	if (( NO_TAPE > 0 )); then
 		echo "--> running without tape"
-		TAPE_STATUS=$NO_TAPE
 	else
 		echo "--> checking tape status"
 		${REMOTE:+$RSH $DUMP_HOST} $MT -f $DUMP_DEVICE status
-		TAPE_STATUS=$?
+		NO_TAPE=$?
 	fi
 }
 
 # Rewind tape
 function tape_rewind
 {
-	if (( NO_TAPE > 0 || TAPE_STATUS > 0 || NO_REWIND > 0 )); then
+	if (( NO_TAPE > 0 || NO_REWIND > 0 )); then
 		echo "--> skipped tape rewind"
 	else
 		echo "--> rewinding tape"
@@ -116,7 +116,7 @@ function tape_rewind
 # Eject tape
 function tape_eject
 {
-	if (( NO_TAPE > 0 || TAPE_STATUS > 0 || NO_EJECT > 0 )); then
+	if (( NO_TAPE > 0 || NO_EJECT > 0 )); then
 		echo "--> skipped tape eject"
 	else
 		echo "--> ejecting tape"
@@ -128,12 +128,20 @@ function tape_eject
 # Write data to tape
 function tape_write
 {
-	if (( TAPE_STATUS > 0 )); then
+	if (( NO_TAPE > 0 )); then
 		echo "--> NO TAPE: piping to /dev/null"
 		$DD of=/dev/null
 	else
-		${REMOTE:+$RSH $DUMP_HOST} $DD of=$DUMP_DEVICE bs=1024
+		${REMOTE:+$RSH $DUMP_HOST} $DD obs=63k of=$DUMP_DEVICE
 	fi
+}
+
+# Position tape interactively
+function tape_position
+{
+	toc_read
+	read fn?"Select file no: "
+	$MT -f $DUMP_DEVICE asf $fn
 }
 
 # Generate a ToC for the pending backup
@@ -162,6 +170,17 @@ function toc_write
 	echo "--> writing table of contents"
 	echo Backup of $HOSTNAME: $(datestamp) | cat - $TOC_FILE | tape_write
 	return $?
+}
+
+# Retrieve and display the ToC from dump device
+function toc_read
+{
+	tape_rewind
+	if (( $? > 0 || NO_TAPE > 0 || NO_REWIND > 0 )); then
+		echo "ERROR: accessing tape"
+		exit 1
+	fi
+	$DD if=$DUMP_DEVICE
 }
 
 # Create a snapshot of a zfs filesystem
@@ -279,7 +298,7 @@ function dump_ufs
 		trap "snap_delete_ufs $1 $2" ERR INT EXIT
 	fi
 	echo "==> commencing dump of $2 via ufsdump: $(datestamp)"
-	$UFSDUMP 0uf - $SNAPSHOT | tape_write
+	$UFSDUMP 0cf - $SNAPSHOT | tape_write
 	STATUS=$?
 	if (( STATUS > 0 )); then
 		echo "--> ERROR: dump of $2 failed: $(datestamp)"
@@ -289,37 +308,58 @@ function dump_ufs
 	return $STATUS
 }
 
+# Run before/after scripts for mountpoint
+# $1 = before|after
+# $2 = MOUNTPOINT
+function run_scripts
+{
+	echo "--> running '$1' scripts for $2"
+	$AWK '$1 ~ /^(before|after)/' $SCRIPT_FILE \
+	| while read WHEN FS COMMAND; do
+		if [[ "$1" == "$WHEN" && "$2" == "$FS" ]]; then
+			echo "--> executing: ( $COMMAND )"
+			( $COMMAND )
+		fi
+	done
+}
+
 # Mail interested parties
 function mail_users
 {
-	mailx -s "Message from $HOSTNAME: backup failed" $MAIL_USERS
+	mailx -s "Message from $HOSTNAME: backup failed" $MAIL_USERS < $LOG_FILE
 }
 
 # Backup all local filesystems
 function backup_all
 {
-	echo "===> Backup commenced: $(datestamp)"
-	tape_status
-	tape_rewind
-	toc_create
-	toc_write
-	while read NUM FSTYPE DEVICE MOUNTPOINT; do
-		dump_$FSTYPE $DEVICE $MOUNTPOINT
-		(( STATUS > 0 )) && MAIL_LOG=1
-	done < $TOC_FILE
-	tape_eject
-	echo "===> Backup completed: $(datestamp)"
+	{
+		echo "===> Backup commenced: $(datestamp)"
+		tape_status
+		tape_rewind
+		toc_create
+		toc_write
+		run_scripts before ALL
+		while read NUM FSTYPE DEVICE MOUNTPOINT; do
+			run_scripts before $MOUNTPOINT
+			dump_$FSTYPE $DEVICE $MOUNTPOINT
+			(( STATUS > 0 )) && MAIL_LOG=1
+			run_scripts after  $MOUNTPOINT
+		done < $TOC_FILE
+		run_scripts after ALL
+		tape_eject
+		echo "===> Backup completed: $(datestamp)"
+	} | tee -a $LOG_FILE >$OUTPUT
 }
 
-case $# in
-0)	backup_all | tee -a $LOG_FILE >$OUTPUT
-	;;
-*)	echo "NOT IMPLEMENTED"
-	usage 1
-	;;
+# Carry out action
+case $ACTION in
+backup)	backup_all; (( MAIL_LOG > 0 )) && mail_users || exit 0
+		;;
+toc)	toc_read
+		;;
+pos)	tape_position
+		;;
+*)		echo "Not implemented"; usage 1
+		;;
 esac
-
-if (( MAIL_LOG > 0 )); then
-	mail_users < $LOG_FILE
-fi
 
