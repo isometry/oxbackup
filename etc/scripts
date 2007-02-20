@@ -1,0 +1,10 @@
+# Scripts to run before after backup/snapshot.
+# Pre-script runs immediately before snapshot.
+# Post-script runs immediately after successful snapshot, otherwise post backup.
+#
+# pre|post	mountpoint	commands ...
+# pre		ALL			echo foo
+# post		ALL			echo bar
+pre			/			svcadm disable ntp
+post		/			svcadm enable ntp
+

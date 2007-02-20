@@ -19,17 +19,27 @@ HOSTNAME=$(hostname)
 
 function usage
 {
-	echo "USAGE: $0 [options]"
+	echo "USAGE: $0 [options] [action]"
+	echo "Options:"
 	echo "       -d [[user@]host:]device  # backup device"
-	echo "       -n                       # run without tape"
-	echo "       -e                       # don't eject tape"
-	echo "       -v                       # direct output to stdout"
+	echo "       -t                       # no tape"
+	echo "       -n                       # no scripts"
+	echo "       -e                       # no eject"
+	echo "       -v                       # view output"
+	echo "Actions:"
+	echo "       backup                   # execute backup (default)"
+	echo "       check                    # view backup log"
+	echo "       toc                      # display table of contents"
+	echo "       position                 # position tape"
+	echo "       register                 # register with logadm"
+	echo "       rotate                   # rotate backup log"
+	exit $1
 }
 
-while getopts cd:emnr:svh c
+while getopts cd:emnr:Rstvh c
 do
 	case $c in
-	c)	ACTION=log_view
+	c)	ACTION=check
 		;;
 	d)	DUMP_DEVICE=$OPTARG
 		;;
@@ -37,12 +47,16 @@ do
 		;;
 	m)	MAIL_LOG=1
 		;;
-	n)	NO_TAPE=1
-		DUMP_DEVICE=/dev/null
+	n)	NO_SCRIPT=1
 		;;
 	r)	RSH=$OPTARG
 		;;
+	R)	ACTION=register
+		;;
 	s)	RSH="ssh -o BatchMode=yes"
+		;;
+	t)	NO_TAPE=1
+		DUMP_DEVICE=/dev/null
 		;;
 	v)	OUTPUT=/dev/stdout
 		;;
@@ -88,6 +102,28 @@ fi
 function datestamp
 {
 	date +'%Y-%m-%d %H:%M:%S'
+}
+
+# Register log with logadm
+function log_register
+{
+	logadm -w backup -C 14 -p never -z 3 $LOG_FILE
+	if (( $? > 0 )); then
+		echo "ERROR: registering logfile with logadm"
+		usage 1
+	else
+		echo "Successfully registered with logadm"
+	fi
+}
+
+# Rotate log
+function log_rotate
+{
+	logadm backup -p now
+	if (( $? > 0 )); then
+		echo "ERROR: rotating logfile ($LOG_FILE)"
+		usage 1
+	fi
 }
 
 # Pipe input to backup log
@@ -365,6 +401,7 @@ function backup_fs
 # Backup all local filesystems
 function backup_all
 {
+	log_rotate
 	{
 		echo "===> Backup commenced: $(datestamp)"
 		tape_status
@@ -384,15 +421,29 @@ function backup_all
 
 # Carry out action
 case $ACTION in
-backup)	backup_all; (( MAIL_LOG > 0 )) && mail_users || exit 0
-		;;
-check)	log_page
-		;;
-toc)	toc_read
-		;;
-pos)	tape_position
-		;;
-*)		echo "Not implemented"; usage 1
-		;;
+backup)
+	backup_all; (( MAIL_LOG > 0 )) && mail_users || exit 0
+	;;
+check)
+	log_page
+	;;
+toc)
+	toc_read
+	;;
+position)
+	tape_position
+	;;
+register)
+	log_register
+	;;
+rotate)
+	log_rotate
+	;;
+help)
+	usage 0
+	;;
+*)
+	echo "Not implemented"; usage 1
+	;;
 esac
 
