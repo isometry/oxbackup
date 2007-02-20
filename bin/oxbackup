@@ -283,7 +283,7 @@ function process_scripts
 		| while read WHEN FS COMMAND; do
 			if [[ "$1" == "$WHEN" && "$2" == "$FS" ]]; then
 				echo "--> executing: ( $COMMAND )"
-				( $COMMAND ) 2>&1 | sed 's/^/# '
+				( $COMMAND ) 2>&1 | sed 's/^/#/'
 			fi
 		done
 	else
