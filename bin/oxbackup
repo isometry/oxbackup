@@ -77,7 +77,7 @@ shift $((OPTIND - 1))
 : ${NO_REWIND:=0}
 : ${NO_EJECT:=0}
 : ${FSTYPES:=ufs zfs}
-: ${PAX_FORMAT:=xustar}
+: ${PAX_FORMAT:=pax}
 : ${SNAPSHOT_ZFS:=1}
 : ${SNAPSHOT_UFS:=1}
 : ${BACKING_STORE:=/var/tmp}
@@ -356,7 +356,7 @@ function dump_zfs
 	else
 		echo "--> completed dump of $2: $(datestamp)"
 	fi
-	cd -
+	cd - >/dev/null
 	return $STATUS
 }
 
