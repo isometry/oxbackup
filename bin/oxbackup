@@ -21,7 +21,7 @@ function usage
 {
 	echo "USAGE: $0 [options] [action]"
 	echo "Options:"
-	echo "       -d [[user@]host:]device  # backup device"
+	echo "       -f [[user@]host:]device  # backup device"
 	echo "       -t                       # no tape"
 	echo "       -n                       # no scripts"
 	echo "       -e                       # no eject"
@@ -36,22 +36,18 @@ function usage
 	exit $1
 }
 
-while getopts cd:emnr:Rstvh c
+while getopts ef:mnr:stvh c
 do
 	case $c in
-	c)	ACTION=check
-		;;
-	d)	DUMP_DEVICE=$OPTARG
-		;;
 	e)	NO_EJECT=1
+		;;
+	f)	DUMP_DEVICE=$OPTARG
 		;;
 	m)	MAIL_LOG=1
 		;;
 	n)	NO_SCRIPT=1
 		;;
 	r)	RSH=$OPTARG
-		;;
-	R)	ACTION=register
 		;;
 	s)	RSH="ssh -o BatchMode=yes"
 		;;
@@ -160,6 +156,7 @@ function tape_rewind
 		echo "--> rewinding tape"
 		${REMOTE:+$RSH $DUMP_HOST} $MT -f $DUMP_DEVICE rewind
 	fi
+	return $?
 }
 
 # Eject tape
@@ -179,7 +176,7 @@ function tape_write
 {
 	if (( NO_TAPE > 0 )); then
 		echo "--> NO TAPE: piping to /dev/null"
-		$DD of=/dev/null
+		$DD obs=63k of=/dev/null
 	else
 		${REMOTE:+$RSH $DUMP_HOST} $DD obs=63k of=$DUMP_DEVICE
 	fi
@@ -264,7 +261,7 @@ function mail_users
 # Create a snapshot of a zfs filesystem
 # $1 = FILESYSTEM
 # $2 = MOUNTPOINT
-# Result: snapshot mountpoint or nothing if snapshot fails.
+# Result: snapshot mountpoint or normal mountpoint if snapshot fails.
 function snap_create_zfs
 {
 	HAS_SNAP=0
@@ -300,6 +297,7 @@ function snap_create_ufs
 	NOSNAP=$(echo $2 | $GREP -cF -f <(cat $NOSNAP_FILE | $GREP -v '#' | $GREP -v '^$'))
 	if (( SNAPSHOT_UFS > 0 && NOSNAP == 0 )); then
 		echo "--> creating ufs snapshot: $2" 1>&2
+		# The following prints the path to the snap device
 		fssnap -F ufs -o maxsize=512m,bs=$BACKING_STORE,unlink $2
 		if (( $? > 0 )); then
 			echo "--> ERROR: snapshot creation failed" 1>&2
@@ -383,7 +381,7 @@ function dump_ufs
 }
 
 # Backup a filesystem
-# $1 = TYPE
+# $1 = FSTYPE
 # $2 = DEVICE
 # $3 = MOUNTPOINT
 function backup_fs
@@ -421,7 +419,7 @@ function backup_all
 		process_scripts post ALL
 		tape_eject
 		echo "===> Backup completed: $(datestamp)"
-	} 2>&1 | tee -a $LOG_FILE >$OUTPUT
+	} 2>&1 | log_pipe
 }
 
 # Carry out action
