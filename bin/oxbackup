@@ -327,7 +327,7 @@ function snap_create_ufs
 function snap_delete_zfs
 {
 	echo "--> deleting zfs snapshot: $2"
-	zfs destroy -f $1@backup
+	zfs destroy $1@backup
 	if (( $? > 0 )); then
 		echo "--> ERROR: snapshot deletion failed: $2"
 	fi
@@ -421,7 +421,6 @@ function backup_all
 		toc_write
 		separator
 		process_scripts pre ALL
-		echo "--> looping over filesystems in table of contents"
 		while read NUM FSTYPE DEVICE MOUNTPOINT; do
 			separator
 			backup_fs $FSTYPE $DEVICE $MOUNTPOINT
