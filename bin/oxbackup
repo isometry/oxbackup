@@ -76,6 +76,7 @@ shift $((OPTIND - 1))
 : ${NO_TAPE:=0}
 : ${NO_REWIND:=0}
 : ${NO_EJECT:=0}
+: ${NO_SCRIPT:=0}
 : ${FSTYPES:=ufs zfs}
 : ${PAX_FORMAT:=pax}
 : ${SNAPSHOT_ZFS:=1}
@@ -236,6 +237,10 @@ function toc_read
 # $2 = MOUNTPOINT
 function process_scripts
 {
+	if (( No_SCRIPT > 0 )); then
+		echo "--> skipping $1-backup scripts for $2"
+		return 0
+	fi
 	if [[ -f "$SCRIPT_FILE" ]]; then
 		echo "--> processing $1-backup scripts for $2"
 		$AWK '$1 ~ /^(pre|post)$/' $SCRIPT_FILE \
@@ -246,7 +251,7 @@ function process_scripts
 			fi
 		done
 	else
-		echo "--> no scripts to process: $SCRIPT_FILE not found"
+		echo "--> skipping $1-backup scripts: $SCRIPT_FILE not found"
 	fi
 }
 
