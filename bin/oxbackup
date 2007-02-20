@@ -237,7 +237,7 @@ function toc_read
 # $2 = MOUNTPOINT
 function process_scripts
 {
-	if (( No_SCRIPT > 0 )); then
+	if (( NO_SCRIPT > 0 )); then
 		echo "--> skipping $1-backup scripts for $2"
 		return 0
 	fi
