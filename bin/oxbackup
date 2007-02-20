@@ -22,10 +22,12 @@ function usage
 	echo "USAGE: $0 [options] [action]"
 	echo "Options:"
 	echo "       -f [[user@]host:]device  # backup device"
+	echo "       -b path                  # backing-store for ufs snapshots"
 	echo "       -t                       # no tape"
 	echo "       -n                       # no scripts"
 	echo "       -e                       # no eject"
 	echo "       -v                       # view output"
+	echo "       -c                       # no colour"
 	echo "Actions:"
 	echo "       backup                   # execute backup (default)"
 	echo "       check                    # view backup log"
@@ -36,9 +38,11 @@ function usage
 	exit $1
 }
 
-while getopts cef:mnr:stvh c
+while getopts b:cef:mnr:stvh c
 do
 	case $c in
+	b)	BACKING_STORE=$OPTARG
+		;;
 	c)	NO_COLOUR=1
 		;;
 	e)	NO_EJECT=1
@@ -87,12 +91,17 @@ shift $((OPTIND - 1))
 # Setup syntax highlighting
 COLOUR_normal="[0m"
 COLOUR_dgrey="[1;30m"
+COLOUR_dred="[0;31m"
 COLOUR_red="[1;31m"
-COLOUR_green="[1;32m"
+COLOUR_dgreen="[0;32m"
+COLOUR_lgreen="[1;32m"
+COLOUR_brown="[0;33m"
 COLOUR_yellow="[1;33m"
-COLOUR_dblue="[1;34m"
+COLOUR_blue="[1;34m"
+COLOUR_purple="[0;35m"
 COLOUR_pink="[1;35m"
-COLOUR_lblue="[1;36m"
+COLOUR_cyan="[1;36m"
+COLOUR_lgrey="[0;37m"
 COLOUR_white="[1;37m"
 
 
@@ -131,9 +140,12 @@ function highlight
 		cat
 	else
 		$SED \
-			-e "s/DUMP IS DONE/${COLOUR_green}&${COLOUR_normal}/" \
-			-e "s/ERROR.*/${COLOUR_red}&${COLOUR_normal}/" \
-			-e "s/COMPLETE.*/${COLOUR_pink}&${COLOUR_normal}/" \
+			-e "s/DUMP IS DONE/${COLOUR_lgreen}&${COLOUR_normal}/" \
+			-e "s/NEEDS ATTENTION.*/${COLOUR_red}&${COLOUR_normal}/" \
+			-e "s/ERROR.*/${COLOUR_dred}&${COLOUR_normal}/" \
+			-e "s/BEGIN/${COLOUR_dgreen}&${COLOUR_normal}/" \
+			-e "s/COMPLETE/${COLOUR_dgreen}&${COLOUR_normal}/" \
+			-e "s/^-*$/${COLOUR_dgrey}&${COLOUR_normal}/" \
 			-e "s/^==>.*/${COLOUR_white}&${COLOUR_normal}/" \
 			-e "s/^-->.*/${COLOUR_white}&${COLOUR_normal}/" \
 			-e "s/^#.*/${COLOUR_dgrey}&${COLOUR_normal}/"
@@ -232,7 +244,7 @@ function tape_position
 # Generate a ToC for the pending backup
 function toc_create
 {
-	echo "--> generating table of contents:"
+	echo "--> generating table of contents"
 	if [[ -f $EXCLUDE_FILE ]]; then
 		EXCLUDE=$($AWK 'BEGIN {printf "^(";} $0 !~ /#/ && $0 != "" {printf "%s%s", (i++>0)?"|":"", $0;} END {printf ")$";}' $EXCLUDE_FILE)
 	else
@@ -245,6 +257,7 @@ function toc_create
 		< /etc/mnttab
 	done | pr -tn > $TOC_FILE
 	STATUS=$?
+	echo "--> table of contents:"
 	cat $TOC_FILE
 	return $STATUS
 }
