@@ -101,6 +101,12 @@ function datestamp
 	date +'%Y-%m-%d %H:%M:%S'
 }
 
+# Print a separator
+function separator
+{
+	echo "------------------------------------------------------------------------"
+}
+
 # Register log with logadm
 function log_register
 {
@@ -351,13 +357,14 @@ function dump_zfs
 		echo "==> ERROR: $3 not found, dump of $2 failed: $(datestamp)"
 		return 1
 	fi
-	echo "==> commencing dump of $2 via pax: $(datestamp)"
+	echo "==> BEGIN: dump of $2 via pax: $(datestamp)"
+	echo "--> executing: ( $PAX -w -pe -x $PAX_FORMAT -X . )"
 	$PAX -w -pe -x $PAX_FORMAT -X . | tape_write
 	STATUS=$?
 	if (( STATUS > 0 )); then
-		echo "--> ERROR: dump of $2 failed: $(datestamp)"
+		echo "==> ERROR: dump of $2 failed: $(datestamp)"
 	else
-		echo "--> completed dump of $2: $(datestamp)"
+		echo "==> COMPLETE: dump of $2 successful: $(datestamp)"
 	fi
 	cd - >/dev/null
 	return $STATUS
@@ -369,13 +376,13 @@ function dump_zfs
 # $3 = SNAPSHOT (device)
 function dump_ufs
 {
-	echo "==> commencing dump of $2 via ufsdump: $(datestamp)"
+	echo "==> BEGIN: dump of $2 via ufsdump: $(datestamp)"
 	$UFSDUMP 0cf - $SNAPSHOT | tape_write
 	STATUS=$?
 	if (( STATUS > 0 )); then
-		echo "--> ERROR: dump of $2 failed: $(datestamp)"
+		echo "==> ERROR: dump of $2 failed: $(datestamp)"
 	else
-		echo "--> completed dump of $2: $(datestamp)"
+		echo "==> COMPLETE: dump of $2 successful: $(datestamp)"
 	fi
 	return $STATUS
 }
@@ -409,14 +416,20 @@ function backup_all
 		echo "===> Backup commenced: $(datestamp)"
 		tape_status
 		tape_rewind
+		separator
 		toc_create
 		toc_write
+		separator
 		process_scripts pre ALL
+		echo "--> looping over filesystems in table of contents"
 		while read NUM FSTYPE DEVICE MOUNTPOINT; do
+			separator
 			backup_fs $FSTYPE $DEVICE $MOUNTPOINT
 			(( STATUS > 0 )) && MAIL_LOG=1
 		done < $TOC_FILE
+		separator
 		process_scripts post ALL
+		separator
 		tape_eject
 		echo "===> Backup completed: $(datestamp)"
 	} 2>&1 | log_pipe
