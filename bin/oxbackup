@@ -95,24 +95,21 @@ COLOUR_pink="[1;35m"
 COLOUR_lblue="[1;36m"
 COLOUR_white="[1;37m"
 
-set -A SYNTAX \
-	"'s/.*(BEGIN|COMPLETE).*/${COLOUR_white}&${COLOUR_normal}/'" \
-	"'s/DUMP IS DONE/${COLOUR_green}&${COLOUR_normal}/'" \
-	"'s/.*(ERROR|failed).*/${COLOUR_red}&${COLOUR_normal}/'" \
-	"'s/^#.*/${COLOUR_dgrey}&${COLOUR_normal}/'"
 
 # Set remote command defaults
 GREP=/usr/xpg4/bin/grep
 AWK=/usr/xpg4/bin/awk
+SED=/usr/xpg4/bin/sed
 MT=/usr/bin/mt
 DD=/usr/bin/dd
 PAX=/usr/bin/pax
 UFSDUMP=/usr/sbin/ufsdump
+LESS=/usr/bin/less
 
 # Calculate additional settings
 REMOTE=$(echo $DUMP_DEVICE | $GREP :)
 if [[ -n "$REMOTE" ]]; then
-	echo $DUMP_DEVICE | sed 's/:/ /' | read DUMP_HOST DUMP_DEVICE
+	echo $DUMP_DEVICE | $SED -e 's/:/ /' | read DUMP_HOST DUMP_DEVICE
 fi
 
 # Print a pretty datestamp
@@ -128,14 +125,18 @@ function separator
 }
 
 # Highlight piped data
-# $1 = COLOUR (fg;bg)
-# $2 = PATTERN
 function highlight
 {
 	if (( NO_COLOUR > 0 )); then
 		cat
 	else
-		sed ${SYNTAX[@]}
+		$SED \
+			-e "s/DUMP IS DONE/${COLOUR_green}&${COLOUR_normal}/" \
+			-e "s/ERROR.*/${COLOUR_red}&${COLOUR_normal}/" \
+			-e "s/COMPLETE.*/${COLOUR_pink}&${COLOUR_normal}/" \
+			-e "s/^==>.*/${COLOUR_white}&${COLOUR_normal}/" \
+			-e "s/^-->.*/${COLOUR_white}&${COLOUR_normal}/" \
+			-e "s/^#.*/${COLOUR_dgrey}&${COLOUR_normal}/"
 	fi
 }
 
@@ -170,7 +171,7 @@ function log_pipe
 # Read backup log
 function log_page
 {
-	cat $LOG_FILE | highlight | ${PAGER:-less}
+	cat $LOG_FILE | highlight | env LESS= $LESS -eR
 }
 
 # Check tape status
