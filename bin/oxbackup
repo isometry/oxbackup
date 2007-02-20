@@ -90,6 +90,18 @@ function datestamp
 	date +'%Y-%m-%d %H:%M:%S'
 }
 
+# Pipe input to backup log
+function log_pipe
+{
+	tee -a $LOG_FILE > $OUTPUT
+}
+
+# Read backup log
+function log_page
+{
+	${PAGER:-less} $LOG_FILE
+}
+
 # Check tape status
 function tape_status
 {
@@ -151,7 +163,7 @@ function toc_create
 	if [[ -f $EXCLUDE_FILE ]]; then
 		EXCLUDE=$($AWK 'BEGIN {printf "^(";} $0 !~ /#/ && $0 != "" {printf "%s%s", (i++>0)?"|":"", $0;} END {printf ")$";}' $EXCLUDE_FILE)
 	else
-		echo "--> exclude file not found"
+		echo "--> no filesystem excludes: $EXCLUDE_FILE not found"
 		EXCLUDE='^$'
 	fi
 	for t in $FSTYPES; do
@@ -183,6 +195,31 @@ function toc_read
 	$DD if=$DUMP_DEVICE
 }
 
+# Run pre/post scripts for mountpoint
+# $1 = pre|post
+# $2 = MOUNTPOINT
+function process_scripts
+{
+	if [[ -f "$SCRIPT_FILE" ]]; then
+		echo "--> processing $1-backup scripts for $2"
+		$AWK '$1 ~ /^(pre|post)$/' $SCRIPT_FILE \
+		| while read WHEN FS COMMAND; do
+			if [[ "$1" == "$WHEN" && "$2" == "$FS" ]]; then
+				echo "--> executing: ( $COMMAND )"
+				( $COMMAND )
+			fi
+		done
+	else
+		echo "--> no scripts to process: $SCRIPT_FILE not found"
+	fi
+}
+
+# Mail interested parties
+function mail_users
+{
+	mailx -s "Message from $HOSTNAME: backup failed" $MAIL_USERS < $LOG_FILE
+}
+
 # Create a snapshot of a zfs filesystem
 # $1 = FILESYSTEM
 # $2 = MOUNTPOINT
@@ -191,20 +228,21 @@ function snap_create_zfs
 {
 	HAS_SNAP=0
 	NOSNAP=$(echo $2 | $GREP -cF -f <(cat $NOSNAP_FILE | $GREP -v '#' | $GREP -v '^$'))
-	if (( SNAPSHOT_ZFS > 0 && $NOSNAP == 0 )); then
+	if (( SNAPSHOT_ZFS > 0 && NOSNAP == 0 )); then
 		echo "--> creating zfs snapshot of $2" 1>&2
 		SNAPSHOT=$2/.zfs/snapshot/backup
 		zfs snapshot $1@backup
 		if [[ $? -eq 0 && -d $SNAPSHOT ]]; then
+			echo "--> snapshot successfully created" 1>&2
 			echo $SNAPSHOT
 			HAS_SNAP=1
 		else
-			echo "--> ERROR: snapshot creation failed: $2" 1>&2
+			echo "--> ERROR: snapshot creation failed" 1>&2
 			echo "--> proceeding with non-snap backup" 1>&2
 			echo $2
 		fi
 	else
-		echo "--> skipped creation of zfs snapshot: $2" 1>&2
+		echo "--> skipped creation of zfs snapshot for $2" 1>&2
 		echo $2
 	fi
 	return $HAS_SNAP
@@ -223,14 +261,15 @@ function snap_create_ufs
 		echo "--> creating ufs snapshot: $2" 1>&2
 		fssnap -F ufs -o maxsize=512m,bs=$BACKING_STORE,unlink $2
 		if (( $? > 0 )); then
-			echo "--> ERROR: snapshot creation failed: $2" 1>&2
+			echo "--> ERROR: snapshot creation failed" 1>&2
 			echo "--> proceeding with non-snap backup" 1>&2
 			echo $1
 		else
+			echo "--> snapshot successfully created" 1>&2
 			HAS_SNAP=1
 		fi
 	else
-		echo "--> skipped creation of ufs snapshot: $2" 1>&2
+		echo "--> skipped creation of ufs snapshot for $2" 1>&2
 		echo $1
 	fi
 	return $HAS_SNAP
@@ -262,18 +301,15 @@ function snap_delete_ufs
 	fi
 }
 
-# Dump a zfs filesystem via pax
+# Dump a zfs filesystem (snapshot) via pax
 # $1 = FILESYSTEM
 # $2 = MOUNTPOINT
+# $3 = SNAPSHOT (mountpoint)
 function dump_zfs
 {
-	SNAPSHOT=$(snap_create_ufs $1 $2)
+	cd $3
 	if (( $? > 0 )); then
-		trap "snap_delete_ufs $1 $2" ERR INT EXIT
-	fi
-	cd $SNAPSHOT
-	if (( $? > 0 )); then
-		echo "==> ERROR: $SNAPSHOT not found, dump of $2 failed: $(datestamp)"
+		echo "==> ERROR: $3 not found, dump of $2 failed: $(datestamp)"
 		return 1
 	fi
 	echo "==> commencing dump of $2 via pax: $(datestamp)"
@@ -288,15 +324,12 @@ function dump_zfs
 	return $STATUS
 }
 
-# Dump a ufs filesystem via ufsdump
+# Dump a ufs filesystem (snapshot) via ufsdump
 # $1 = DEVICE
 # $2 = MOUNTPOINT
+# $3 = SNAPSHOT (device)
 function dump_ufs
 {
-	SNAPSHOT=$(snap_create_ufs $1 $2)
-	if (( $? > 0 )); then
-		trap "snap_delete_ufs $1 $2" ERR INT EXIT
-	fi
 	echo "==> commencing dump of $2 via ufsdump: $(datestamp)"
 	$UFSDUMP 0cf - $SNAPSHOT | tape_write
 	STATUS=$?
@@ -308,25 +341,25 @@ function dump_ufs
 	return $STATUS
 }
 
-# Run before/after scripts for mountpoint
-# $1 = before|after
-# $2 = MOUNTPOINT
-function run_scripts
+# Backup a filesystem
+# $1 = TYPE
+# $2 = DEVICE
+# $3 = MOUNTPOINT
+function backup_fs
 {
-	echo "--> running '$1' scripts for $2"
-	$AWK '$1 ~ /^(before|after)/' $SCRIPT_FILE \
-	| while read WHEN FS COMMAND; do
-		if [[ "$1" == "$WHEN" && "$2" == "$FS" ]]; then
-			echo "--> executing: ( $COMMAND )"
-			( $COMMAND )
-		fi
-	done
-}
-
-# Mail interested parties
-function mail_users
-{
-	mailx -s "Message from $HOSTNAME: backup failed" $MAIL_USERS < $LOG_FILE
+	process_scripts pre $3
+	SNAPSHOT=$(snap_create_$1 $2 $3)
+	# $? > 0 implies snapshot was successful
+	if (( $? > 0 )); then
+		# ensure snapshot gets deleted
+		trap "snap_delete_$1 $2 $3" ERR INT EXIT
+		# run post-scripts early as we have a snapshot
+		process_scripts post $3
+	else
+		# ensure post scripts get run
+		trap "process_scripts post $3" ERR INT EXIT
+	fi
+	dump_$1 $2 $3 $SNAPSHOT
 }
 
 # Backup all local filesystems
@@ -338,22 +371,22 @@ function backup_all
 		tape_rewind
 		toc_create
 		toc_write
-		run_scripts before ALL
+		process_scripts pre ALL
 		while read NUM FSTYPE DEVICE MOUNTPOINT; do
-			run_scripts before $MOUNTPOINT
-			dump_$FSTYPE $DEVICE $MOUNTPOINT
+			backup_fs $FSTYPE $DEVICE $MOUNTPOINT
 			(( STATUS > 0 )) && MAIL_LOG=1
-			run_scripts after  $MOUNTPOINT
 		done < $TOC_FILE
-		run_scripts after ALL
+		process_scripts post ALL
 		tape_eject
 		echo "===> Backup completed: $(datestamp)"
-	} | tee -a $LOG_FILE >$OUTPUT
+	} 2>&1 | tee -a $LOG_FILE >$OUTPUT
 }
 
 # Carry out action
 case $ACTION in
 backup)	backup_all; (( MAIL_LOG > 0 )) && mail_users || exit 0
+		;;
+check)	log_page
 		;;
 toc)	toc_read
 		;;
