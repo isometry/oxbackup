@@ -143,6 +143,7 @@ function highlight
 			-e "s/DUMP IS DONE/${COLOUR_lgreen}&${COLOUR_normal}/" \
 			-e "s/NEEDS ATTENTION.*/${COLOUR_red}&${COLOUR_normal}/" \
 			-e "s/ERROR.*/${COLOUR_dred}&${COLOUR_normal}/" \
+			-e "s/NO TAPE/${COLOUR_red}&${COLOUR_normal}/" \
 			-e "s/BEGIN/${COLOUR_dgreen}&${COLOUR_normal}/" \
 			-e "s/COMPLETE/${COLOUR_dgreen}&${COLOUR_normal}/" \
 			-e "s/^-*$/${COLOUR_dgrey}&${COLOUR_normal}/" \
@@ -223,13 +224,14 @@ function tape_eject
 }
 
 # Write data to tape
+# $1 = Output Blocksize
 function tape_write
 {
 	if (( NO_TAPE > 0 )); then
 		echo "--> NO TAPE: piping to /dev/null"
-		$DD obs=63k of=/dev/null
+		$DD obs=${1:-63k} of=/dev/null
 	else
-		${REMOTE:+$RSH $DUMP_HOST} $DD obs=63k of=$DUMP_DEVICE
+		${REMOTE:+$RSH $DUMP_HOST} $DD obs=${1:-63k} of=$DUMP_DEVICE
 	fi
 }
 
@@ -266,7 +268,7 @@ function toc_create
 function toc_write
 {
 	echo "--> writing table of contents"
-	echo Backup of $HOSTNAME: $(datestamp) | cat - $TOC_FILE | tape_write
+	echo Backup of $HOSTNAME: $(datestamp) | cat - $TOC_FILE | tape_write 1k
 	return $?
 }
 
@@ -405,7 +407,7 @@ function dump_zfs
 	fi
 	echo "==> BEGIN: dump of $2 via pax: $(datestamp)"
 	echo "--> executing: ( $PAX -w -pe -x $PAX_FORMAT -X . )"
-	$PAX -w -pe -x $PAX_FORMAT -X . | tape_write
+	$PAX -w -pe -x $PAX_FORMAT -b 16384 -X . | tape_write 16k
 	STATUS=$?
 	if (( STATUS > 0 )); then
 		echo "==> ERROR: dump of $2 failed: $(datestamp)"
