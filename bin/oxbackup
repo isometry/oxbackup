@@ -142,9 +142,9 @@ function highlight
 	else
 		$SED \
 			-e "s/DUMP IS DONE/${COLOUR_lgreen}&${COLOUR_normal}/" \
-			-e "s/NEEDS ATTENTION.*/${COLOUR_red}&${COLOUR_normal}/" \
+			-e "s/NEEDS ATTENTION.*/${COLOUR_dred}&${COLOUR_normal}/" \
 			-e "s/ERROR.*/${COLOUR_dred}&${COLOUR_normal}/" \
-			-e "s/NO TAPE/${COLOUR_red}&${COLOUR_normal}/" \
+			-e "s/NO TAPE.*/${COLOUR_dred}&${COLOUR_normal}/" \
 			-e "s/BEGIN/${COLOUR_dgreen}&${COLOUR_normal}/" \
 			-e "s/COMPLETE/${COLOUR_dgreen}&${COLOUR_normal}/" \
 			-e "s/^-*$/${COLOUR_dgrey}&${COLOUR_normal}/" \
