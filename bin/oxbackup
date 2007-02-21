@@ -71,7 +71,7 @@ done
 shift $((OPTIND - 1))
 
 # Set defaults
-: ${ACTION:=${1:-backup}}
+: ${ACTION:=${1:-help}}
 : ${DUMP_DEVICE:=/dev/rmt/0cn}
 : ${RSH:=rsh}
 : ${OUTPUT:=/dev/null}
@@ -270,11 +270,15 @@ function tape_read
 }
 
 # Position tape interactively
+# $1 = FILENO
 function tape_position
 {
-	toc_read
-	read fn?"Select file no: "
-	$MT -f $DUMP_DEVICE asf $fn
+	if (( $# == 1 )); then
+		FILENO=$1
+	else
+		read FILENO?"Enter File No.: "
+	fi
+	$MT -f $DUMP_DEVICE asf $FILENO
 }
 
 # Generate a ToC for the pending backup
@@ -311,7 +315,7 @@ function toc_read
 {
 	tape_rewind
 	if (( $? > 0 || NO_TAPE > 0 || NO_REWIND > 0 )); then
-		echo "ERROR: accessing tape"
+		echo "ERROR: accessing tape" 1>&2
 		exit 1
 	fi
 	$DD if=$DUMP_DEVICE
@@ -563,10 +567,45 @@ function backup_all
 	} 2>&1 | log_pipe
 }
 
+# Restore files from a filesystem
+# $1 = FILESYSTEM
+function restore
+{
+	ROOT=$1; shift
+	echo "Starting restore..."
+	echo "--> WARNING: this will restore to the current directory ($(pwd))!"
+	while [[ -z "$ROOT" ]]; do
+		read ROOT?"Enter source filesystem mountpoint: "
+	done
+	read FILE?"Enter file patterns to restore: "
+	toc_read | tail +1 | while read NUM FSTYPE DEVICE MOUNTPOINT; do
+		if [[ "$MOUNTPOINT" = "$ROOT" ]]; then
+			tape_position $NUM
+			case $FSTYPE in
+			zfs)
+				$PAX -rvf <(tape_read ibs=63k) $FILE
+				;;
+			ufs)
+				$UFSRESTORE xvf <(tape_read ibs=63k) $FILE
+				;;
+			*)
+				echo "--> ERROR: Unrecognized filesystem type"
+				exit 1
+				;;
+			esac
+			exit
+		fi
+	done
+	echo "--> ERROR: $ROOT not found in table of contents"
+}
+
 # Carry out action
 case $ACTION in
 backup)
 	backup_all; (( MAIL_LOG > 0 )) && mail_users || exit 0
+	;;
+restore)
+	restore $2
 	;;
 check)
 	log_page
