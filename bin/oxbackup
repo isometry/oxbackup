@@ -473,7 +473,7 @@ function dump_ufs
 # $3 = MOUNTPOINT
 function backup_fs
 {
-	echo "==> Backing up $HOSTNAME:/$3 to ${REMOTE:+$DUMP_HOST:}$DUMP_DEVICE"
+	echo "==> Backing up $HOSTNAME:$3 to ${REMOTE:+$DUMP_HOST:}$DUMP_DEVICE"
 	script_process pre $3
 	SNAPSHOT=$(snap_create_$1 $2 $3)
 	# $? > 0 implies snapshot was successful
