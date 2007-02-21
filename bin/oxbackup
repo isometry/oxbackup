@@ -224,14 +224,14 @@ function tape_eject
 }
 
 # Write data to tape
-# $1 = Output Blocksize
+# $* = dd directives
 function tape_write
 {
 	if (( NO_TAPE > 0 )); then
 		echo "--> NO TAPE: piping to /dev/null"
-		$DD obs=${1:-63k} of=/dev/null
+		$DD $* of=/dev/null
 	else
-		${REMOTE:+$RSH $DUMP_HOST} $DD obs=${1:-63k} of=$DUMP_DEVICE
+		${REMOTE:+$RSH $DUMP_HOST} $DD $* of=$DUMP_DEVICE
 	fi
 }
 
@@ -268,7 +268,7 @@ function toc_create
 function toc_write
 {
 	echo "--> writing table of contents"
-	echo Backup of $HOSTNAME: $(datestamp) | cat - $TOC_FILE | tape_write 1k
+	echo Backup of $HOSTNAME: $(datestamp) | cat - $TOC_FILE | tape_write
 	return $?
 }
 
@@ -407,7 +407,7 @@ function dump_zfs
 	fi
 	echo "==> BEGIN: dump of $2 via pax: $(datestamp)"
 	echo "--> executing: ( $PAX -w -pe -x $PAX_FORMAT -X . )"
-	$PAX -w -pe -x $PAX_FORMAT -b 16384 -X . | tape_write 16k
+	$PAX -w -pe -x $PAX_FORMAT -X . | tape_write
 	STATUS=$?
 	if (( STATUS > 0 )); then
 		echo "==> ERROR: dump of $2 failed: $(datestamp)"
@@ -425,7 +425,7 @@ function dump_zfs
 function dump_ufs
 {
 	echo "==> BEGIN: dump of $2 via ufsdump: $(datestamp)"
-	$UFSDUMP 0cf - $SNAPSHOT | tape_write
+	$UFSDUMP 0cf - $SNAPSHOT | tape_write obs=63k
 	STATUS=$?
 	if (( STATUS > 0 )); then
 		echo "==> ERROR: dump of $2 failed: $(datestamp)"
