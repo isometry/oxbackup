@@ -1,4 +1,3 @@
 # Filesystems which should be backed up "live".
 # One mountpoint per line.
-/var
 

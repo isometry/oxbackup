@@ -84,7 +84,7 @@ shift $((OPTIND - 1))
 : ${PAX_FORMAT:=xustar}
 : ${SNAPSHOT_ZFS:=1}
 : ${SNAPSHOT_UFS:=1}
-: ${BACKING_STORE:=/var/tmp}
+: ${BACKING_STORE:=/snap}
 : ${MAIL_LOG:=0}
 : ${MAIL_USERS:=p0073773@brookes.ac.uk}
 

@@ -1,3 +1,4 @@
 # Filesystems to exclude from backup.
 # One mountpoint per line.
+/snap
 
