@@ -81,7 +81,7 @@ shift $((OPTIND - 1))
 : ${NO_SCRIPT:=0}
 : ${NO_COLOUR:=0}
 : ${FSTYPES:=ufs zfs}
-: ${PAX_FORMAT:=pax}
+: ${PAX_FORMAT:=xustar}
 : ${SNAPSHOT_ZFS:=1}
 : ${SNAPSHOT_UFS:=1}
 : ${BACKING_STORE:=/var/tmp}
@@ -195,7 +195,10 @@ function tape_status
 	else
 		echo "--> checking tape status"
 		${REMOTE:+$RSH $DUMP_HOST} $MT -f $DUMP_DEVICE status
-		NO_TAPE=$?
+		if (( $? > 0 )); then
+			echo "--> NO TAPE: dump device reset to /dev/null"
+			NO_TAPE=1
+		fi
 	fi
 }
 
@@ -223,15 +226,27 @@ function tape_eject
 	return $?
 }
 
-# Write data to tape
+# Write data to tape using dd
 # $* = dd directives
-function tape_write
+function tape_write_dd
 {
 	if (( NO_TAPE > 0 )); then
 		echo "--> NO TAPE: piping to /dev/null"
 		$DD $* of=/dev/null
 	else
 		${REMOTE:+$RSH $DUMP_HOST} $DD $* of=$DUMP_DEVICE
+	fi
+}
+
+# Write data to tape using dd
+# $* = dd directives
+function tape_write_cat
+{
+	if (( NO_TAPE > 0 )); then
+		echo "--> NO TAPE: piping to /dev/null"
+		$CAT > /dev/null
+	else
+		${REMOTE:+$RSH $DUMP_HOST} $CAT > $DUMP_DEVICE
 	fi
 }
 
@@ -268,7 +283,7 @@ function toc_create
 function toc_write
 {
 	echo "--> writing table of contents"
-	echo Backup of $HOSTNAME: $(datestamp) | cat - $TOC_FILE | tape_write
+	echo Backup of $HOSTNAME: $(datestamp) | cat - $TOC_FILE | tape_write_cat
 	return $?
 }
 
@@ -412,8 +427,13 @@ function dump_zfs
 		return 1
 	fi
 	echo "==> BEGIN: dump of $2 via pax: $(datestamp)"
-	echo "--> executing: ( $PAX -w -pe -x $PAX_FORMAT -X . )"
-	$PAX -w -pe -x $PAX_FORMAT -X . | tape_write
+	if [[ -n "$REMOTE" ]]; then
+		echo "--> running remote pax..."
+		$PAX -w -pe -x $PAX_FORMAT -X -f - . | tape_write_cat
+	else
+		echo "--> running local pax..."
+		$PAX -w -pe -x $PAX_FORMAT -X -f $DUMP_DEVICE .
+	fi
 	STATUS=$?
 	if (( STATUS > 0 )); then
 		echo "==> ERROR: dump of $2 failed: $(datestamp)"
@@ -431,7 +451,13 @@ function dump_zfs
 function dump_ufs
 {
 	echo "==> BEGIN: dump of $2 via ufsdump: $(datestamp)"
-	$UFSDUMP 0cf - $SNAPSHOT | tape_write obs=63k
+	if [[ -n "$REMOTE" ]]; then
+		echo "--> running remote ufsdump..."
+		$UFSDUMP 0cf - $SNAPSHOT | tape_write_dd obs=63k
+	else
+		echo "--> running local ufsdump..."
+		$UFSDUMP 0cf $DUMP_DEVICE $SNAPSHOT
+	fi
 	STATUS=$?
 	if (( STATUS > 0 )); then
 		echo "==> ERROR: dump of $2 failed: $(datestamp)"
