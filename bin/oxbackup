@@ -106,15 +106,23 @@ COLOUR_white="[1;37m"
 
 
 # Set remote command defaults
-CAT=/usr/bin/cat
-GREP=/usr/xpg4/bin/grep
 AWK=/usr/xpg4/bin/awk
-SED=/usr/xpg4/bin/sed
-MT=/usr/bin/mt
+CAT=/usr/bin/cat
+DATE=/usr/xpg4/bin/date
 DD=/usr/bin/dd
-PAX=/usr/bin/pax
-UFSDUMP=/usr/sbin/ufsdump
+ENV=/usr/xpg4/bin/env
+FSSNAP=/usr/sbin/fssnap
+GREP=/usr/xpg4/bin/grep
 LESS=/usr/bin/less
+LOGADM=/usr/sbin/logadm
+MAIL=/usr/bin/mailx
+MT=/usr/bin/mt
+PAX=/usr/bin/pax
+PR=/usr/xpg4/bin/pr
+SED=/usr/xpg4/bin/sed
+TEE=/usr/bin/tee
+UFSDUMP=/usr/sbin/ufsdump
+ZFS=/sbin/zfs
 
 # Calculate additional settings
 REMOTE=$(echo $DUMP_DEVICE | $GREP :)
@@ -125,7 +133,7 @@ fi
 # Print a pretty datestamp
 function datestamp
 {
-	date +'%Y-%m-%d %H:%M:%S'
+	$DATE +'%Y-%m-%d %H:%M:%S'
 }
 
 # Print a separator
@@ -157,7 +165,7 @@ function highlight
 # Register log with logadm
 function log_register
 {
-	logadm -w backup -C 28 -p never -z 7 $LOG_FILE
+	$LOGADM -w backup -C 28 -p never -z 7 -t '$file.$N' "$LOG_FILE,$TOC_FILE"
 	if (( $? > 0 )); then
 		echo "ERROR: registering logfile with logadm"
 		usage 1
@@ -169,7 +177,7 @@ function log_register
 # Rotate log
 function log_rotate
 {
-	logadm backup -p now
+	$LOGADM backup -p now
 	if (( $? > 0 )); then
 		echo "ERROR: rotating logfile ($LOG_FILE)"
 		usage 1
@@ -179,13 +187,13 @@ function log_rotate
 # Pipe input to backup log
 function log_pipe
 {
-	tee -a $LOG_FILE > $OUTPUT
+	$TEE -a $LOG_FILE > $OUTPUT
 }
 
 # Read backup log
 function log_page
 {
-	$CAT $LOG_FILE | highlight | env LESS= $LESS -eR
+	$CAT $LOG_FILE | highlight | $ENV LESS= $LESS -eR
 }
 
 # Check tape status
@@ -273,7 +281,7 @@ function toc_create
 		$AWK -v fstype=$t -v exclude=$EXCLUDE \
 			'$3 == fstype && $2 !~ exclude {print $3, $1, $2}' \
 		< /etc/mnttab
-	done | pr -tn > $TOC_FILE
+	done | $PR -tn > $TOC_FILE
 	STATUS=$?
 	echo "--> table of contents:"
 	$CAT $TOC_FILE
@@ -331,7 +339,7 @@ function script_process
 # Mail interested parties
 function mail_users
 {
-	mailx -s "Message from $HOSTNAME: backup failed" $MAIL_USERS < $LOG_FILE
+	$MAIL -s "Message from $HOSTNAME: backup failed" $MAIL_USERS < $LOG_FILE
 }
 
 # Create a snapshot of a zfs filesystem
@@ -345,7 +353,7 @@ function snap_create_zfs
 	if (( SNAPSHOT_ZFS > 0 && NOSNAP == 0 )); then
 		echo "--> creating zfs snapshot of $2" 1>&2
 		SNAPSHOT=$2/.zfs/snapshot/backup
-		zfs snapshot $1@backup
+		$ZFS snapshot $1@backup
 		if [[ $? -eq 0 && -d $SNAPSHOT ]]; then
 			echo "--> snapshot successfully created" 1>&2
 			echo $SNAPSHOT
@@ -374,7 +382,7 @@ function snap_create_ufs
 	if (( SNAPSHOT_UFS > 0 && NOSNAP == 0 )); then
 		echo "--> creating ufs snapshot: $2" 1>&2
 		# The following prints the path to the snap device
-		fssnap -F ufs -o maxsize=512m,bs=$BACKING_STORE,unlink $2
+		$FSSNAP -F ufs -o maxsize=512m,bs=$BACKING_STORE,unlink $2
 		if (( $? > 0 )); then
 			echo "--> ERROR: snapshot creation failed" 1>&2
 			echo "--> proceeding with non-snap backup" 1>&2
@@ -397,7 +405,7 @@ function snap_create_ufs
 function snap_delete_zfs
 {
 	echo "--> deleting zfs snapshot: $2"
-	zfs destroy $1@backup
+	$ZFS destroy $1@backup
 	if (( $? > 0 )); then
 		echo "--> ERROR: snapshot deletion failed: $2"
 	fi
@@ -410,7 +418,7 @@ function snap_delete_zfs
 function snap_delete_ufs
 {
 	echo "--> deleting ufs snapshot: $2"
-	fssnap -d $2
+	$FSSNAP -d $2
 	if (( $? > 0 )); then
 		echo "--> ERROR: snapshot deletion failed: $2"
 	fi
