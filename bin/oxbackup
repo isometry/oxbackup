@@ -106,6 +106,7 @@ COLOUR_white="[1;37m"
 
 
 # Set remote command defaults
+CAT=/usr/bin/cat
 GREP=/usr/xpg4/bin/grep
 AWK=/usr/xpg4/bin/awk
 SED=/usr/xpg4/bin/sed
@@ -137,7 +138,7 @@ function separator
 function highlight
 {
 	if (( NO_COLOUR > 0 )); then
-		cat
+		$CAT
 	else
 		$SED \
 			-e "s/DUMP IS DONE/${COLOUR_lgreen}&${COLOUR_normal}/" \
@@ -184,7 +185,7 @@ function log_pipe
 # Read backup log
 function log_page
 {
-	cat $LOG_FILE | highlight | env LESS= $LESS -eR
+	$CAT $LOG_FILE | highlight | env LESS= $LESS -eR
 }
 
 # Check tape status
@@ -275,7 +276,7 @@ function toc_create
 	done | pr -tn > $TOC_FILE
 	STATUS=$?
 	echo "--> table of contents:"
-	cat $TOC_FILE
+	$CAT $TOC_FILE
 	return $STATUS
 }
 
@@ -283,7 +284,7 @@ function toc_create
 function toc_write
 {
 	echo "--> writing table of contents"
-	echo Backup of $HOSTNAME: $(datestamp) | cat - $TOC_FILE | tape_write_cat
+	echo Backup of $HOSTNAME: $(datestamp) | $CAT - $TOC_FILE | tape_write_cat
 	return $?
 }
 
@@ -295,7 +296,7 @@ function toc_read
 		echo "ERROR: accessing tape"
 		exit 1
 	fi
-	$DD if=$DUMP_DEVICE
+	$CAT $DUMP_DEVICE
 }
 
 # Reformat script output
@@ -340,7 +341,7 @@ function mail_users
 function snap_create_zfs
 {
 	HAS_SNAP=0
-	NOSNAP=$(echo $2 | $GREP -cF -f <(echo NONE | cat - $NOSNAP_FILE | $GREP -v '#' | $GREP -v '^$'))
+	NOSNAP=$(echo $2 | $GREP -cF -f <(echo NONE | $CAT - $NOSNAP_FILE | $GREP -v '#' | $GREP -v '^$'))
 	if (( SNAPSHOT_ZFS > 0 && NOSNAP == 0 )); then
 		echo "--> creating zfs snapshot of $2" 1>&2
 		SNAPSHOT=$2/.zfs/snapshot/backup
@@ -369,7 +370,7 @@ function snap_create_zfs
 function snap_create_ufs
 {
 	HAS_SNAP=0
-	NOSNAP=$(echo $2 | $GREP -cF -f <(echo NONE | cat - $NOSNAP_FILE | $GREP -v '#' | $GREP -v '^$'))
+	NOSNAP=$(echo $2 | $GREP -cF -f <(echo NONE | $CAT - $NOSNAP_FILE | $GREP -v '#' | $GREP -v '^$'))
 	if (( SNAPSHOT_UFS > 0 && NOSNAP == 0 )); then
 		echo "--> creating ufs snapshot: $2" 1>&2
 		# The following prints the path to the snap device
