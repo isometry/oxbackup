@@ -111,6 +111,7 @@ CAT=/usr/bin/cat
 DATE=/usr/xpg4/bin/date
 DD=/usr/bin/dd
 ENV=/usr/xpg4/bin/env
+FIND=/usr/xpg4/bin/find
 FSSNAP=/usr/sbin/fssnap
 GREP=/usr/xpg4/bin/grep
 LESS=/usr/bin/less
@@ -120,6 +121,7 @@ MT=/usr/bin/mt
 PAX=/usr/bin/pax
 PR=/usr/xpg4/bin/pr
 SED=/usr/xpg4/bin/sed
+SLEEP=/usr/bin/sleep
 TEE=/usr/bin/tee
 UFSDUMP=/usr/sbin/ufsdump
 ZFS=/sbin/zfs
@@ -244,7 +246,7 @@ function tape_write
 		$DD $* of=/dev/null
 	else
 		if [[ -n "$REMOTE" ]]; then
-			$RSH $DUMP_HOST "$DD $* of=$DUMP_DEVICE"
+			$RSH $DUMP_HOST "$DD $* of=$DUMP_DEVICE "
 		else
 			$DD $* of=$DUMP_DEVICE
 		fi
@@ -296,7 +298,7 @@ function toc_read
 		echo "ERROR: accessing tape"
 		exit 1
 	fi
-	$CAT $DUMP_DEVICE
+	$DD if=$DUMP_DEVICE
 }
 
 # Reformat script output
@@ -472,6 +474,8 @@ function dump_zfs
 		echo "==> COMPLETE: dump of $2 successful: $(datestamp)"
 	fi
 	cd - >/dev/null
+	# Give the >() pipe time to close
+	$SLEEP 5
 	return $STATUS
 }
 
@@ -490,6 +494,8 @@ function dump_ufs
 	else
 		echo "==> COMPLETE: dump of $2 successful: $(datestamp)"
 	fi
+	# Give the >() pipe time to close
+	$SLEEP 5
 	return $STATUS
 }
 
