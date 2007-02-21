@@ -342,6 +342,28 @@ function mail_users
 	$MAIL -s "Message from $HOSTNAME: backup failed" $MAIL_USERS < $LOG_FILE
 }
 
+# Check if a zfs snapshot exists
+# $1 = SNAPSHOT
+# Returns: 0 if snapshot exists, >0 otherwise
+function snap_exists_zfs
+{
+	$ZFS list -t snapshot -Ho name $1 >/dev/null 2>&1
+	return $?
+}
+
+# Check if a ufs snapshot exists
+# $1 = MOUNTPOINT
+# Returns: 0 if snapshot exists, >0 otherwise
+function snap_exists_ufs
+{
+	$FSSNAP -i $1 | read STATE
+	if [[ -n "$STATE" ]]; then
+		return 0
+	else
+		return 1
+	fi
+}
+
 # Create a snapshot of a zfs filesystem
 # $1 = FILESYSTEM
 # $2 = MOUNTPOINT
@@ -404,6 +426,9 @@ function snap_create_ufs
 # Result: nothing
 function snap_delete_zfs
 {
+	if ! snap_exists_zfs $FILESYSTEM@backup; then
+		echo "--> ERROR: snapshot of $2 has disappeared"
+	fi
 	echo "--> deleting zfs snapshot of $2"
 	$ZFS destroy $1@backup
 	if (( $? > 0 )); then
@@ -419,6 +444,9 @@ function snap_delete_zfs
 # Result: nothing
 function snap_delete_ufs
 {
+	if ! snap_exists_ufs $2; then
+		echo "--> ERROR: snapshot of $2 has disappeared"
+	fi
 	echo "--> deleting ufs snapshot of $2"
 	$FSSNAP -d $2
 	if (( $? > 0 )); then
