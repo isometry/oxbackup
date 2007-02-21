@@ -157,7 +157,7 @@ function highlight
 # Register log with logadm
 function log_register
 {
-	logadm -w backup -C 14 -p never -z 3 $LOG_FILE
+	logadm -w backup -C 28 -p never -z 7 $LOG_FILE
 	if (( $? > 0 )); then
 		echo "ERROR: registering logfile with logadm"
 		usage 1
