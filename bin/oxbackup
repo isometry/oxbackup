@@ -165,7 +165,7 @@ function highlight
 # Register log with logadm
 function log_register
 {
-	$LOGADM -w backup -C 28 -p never -z 7 -t '$file.$N' "$LOG_FILE,$TOC_FILE"
+	$LOGADM -w backup -C 28 -p never -z 7 -t '$file.$N' "{$LOG_FILE,$TOC_FILE}"
 	if (( $? > 0 )); then
 		echo "ERROR: registering logfile with logadm"
 		usage 1
@@ -404,10 +404,12 @@ function snap_create_ufs
 # Result: nothing
 function snap_delete_zfs
 {
-	echo "--> deleting zfs snapshot: $2"
+	echo "--> deleting zfs snapshot of $2"
 	$ZFS destroy $1@backup
 	if (( $? > 0 )); then
-		echo "--> ERROR: snapshot deletion failed: $2"
+		echo "--> ERROR: snapshot deletion failed"
+	else
+		echo "--> snapshot successfully deleted"
 	fi
 }
 
@@ -417,10 +419,12 @@ function snap_delete_zfs
 # Result: nothing
 function snap_delete_ufs
 {
-	echo "--> deleting ufs snapshot: $2"
+	echo "--> deleting ufs snapshot of $2"
 	$FSSNAP -d $2
 	if (( $? > 0 )); then
-		echo "--> ERROR: snapshot deletion failed: $2"
+		echo "--> ERROR: snapshot deletion failed"
+	else
+		echo "--> snapshot successfully deleted"
 	fi
 }
 
@@ -438,10 +442,10 @@ function dump_zfs
 	echo "==> BEGIN: dump of $2 via pax: $(datestamp)"
 	if [[ -n "$REMOTE" ]]; then
 		echo "--> running remote pax..."
-		$PAX -w -pe -x $PAX_FORMAT -X -f - . | tape_write_cat
+		$PAX -w -pe -x $PAX_FORMAT -X -s '#./##' -f - . | tape_write_cat
 	else
 		echo "--> running local pax..."
-		$PAX -w -pe -x $PAX_FORMAT -X -f $DUMP_DEVICE .
+		$PAX -w -pe -x $PAX_FORMAT -X -s '#./##' -f $DUMP_DEVICE .
 	fi
 	STATUS=$?
 	if (( STATUS > 0 )); then
