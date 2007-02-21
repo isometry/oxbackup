@@ -283,10 +283,16 @@ function toc_read
 	$DD if=$DUMP_DEVICE
 }
 
+# Reformat script output
+function script_pipe
+{
+	$SED -e 's/^/# /'
+}
+
 # Run pre/post scripts for mountpoint
 # $1 = pre|post
 # $2 = MOUNTPOINT
-function process_scripts
+function script_process
 {
 	if (( NO_SCRIPT > 0 )); then
 		echo "--> skipping $1-backup scripts for $2"
@@ -298,7 +304,7 @@ function process_scripts
 		| while read WHEN FS COMMAND; do
 			if [[ "$1" == "$WHEN" && "$2" == "$FS" ]]; then
 				echo "--> executing: ( $COMMAND )"
-				( $COMMAND ) 2>&1 | sed 's/^/#/'
+				( $COMMAND ) 2>&1 | script_pipe
 			fi
 		done
 	else
@@ -441,17 +447,18 @@ function dump_ufs
 # $3 = MOUNTPOINT
 function backup_fs
 {
-	process_scripts pre $3
+	echo "==> Backing up $HOSTNAME:/$3 to ${REMOTE:+$DUMP_HOST:}$DUMP_DEVICE"
+	script_process pre $3
 	SNAPSHOT=$(snap_create_$1 $2 $3)
 	# $? > 0 implies snapshot was successful
 	if (( $? > 0 )); then
 		# ensure snapshot gets deleted
 		trap "snap_delete_$1 $2 $3" ERR INT EXIT
 		# run post-scripts early as we have a snapshot
-		process_scripts post $3
+		script_process post $3
 	else
 		# ensure post scripts get run
-		trap "process_scripts post $3" ERR INT EXIT
+		trap "script_process post $3" ERR INT EXIT
 	fi
 	dump_$1 $2 $3 $SNAPSHOT
 }
@@ -468,14 +475,14 @@ function backup_all
 		toc_create
 		toc_write
 		separator
-		process_scripts pre ALL
+		script_process pre ALL
 		while read NUM FSTYPE DEVICE MOUNTPOINT; do
 			separator
 			backup_fs $FSTYPE $DEVICE $MOUNTPOINT
 			(( STATUS > 0 )) && MAIL_LOG=1
 		done < $TOC_FILE
 		separator
-		process_scripts post ALL
+		script_process post ALL
 		separator
 		tape_eject
 		echo "===> Backup completed: $(datestamp)"
