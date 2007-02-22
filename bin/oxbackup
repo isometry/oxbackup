@@ -124,6 +124,7 @@ SED=/usr/xpg4/bin/sed
 SLEEP=/usr/bin/sleep
 TEE=/usr/bin/tee
 UFSDUMP=/usr/sbin/ufsdump
+UFSRESTORE=/usr/sbin/ufsrestore
 ZFS=/sbin/zfs
 
 # Calculate additional settings
@@ -273,11 +274,10 @@ function tape_read
 # $1 = FILENO
 function tape_position
 {
-	if (( $# == 1 )); then
-		FILENO=$1
-	else
+	FILENO=$1
+	while [[ -z "$FILENO" ]]; do
 		read FILENO?"Enter File No.: "
-	fi
+	done
 	$MT -f $DUMP_DEVICE asf $FILENO
 }
 
@@ -571,8 +571,8 @@ function backup_all
 # $1 = FILESYSTEM
 function restore
 {
-	ROOT=$1; shift
-	echo "Starting restore..."
+	ROOT=$1
+	echo "==> Starting restore ${ROOT:+from $1}"
 	echo "--> WARNING: this will restore to the current directory ($(pwd))!"
 	while [[ -z "$ROOT" ]]; do
 		read ROOT?"Enter source filesystem mountpoint: "
@@ -586,7 +586,11 @@ function restore
 				$PAX -rvf <(tape_read ibs=63k) $FILE
 				;;
 			ufs)
-				$UFSRESTORE xvf <(tape_read ibs=63k) $FILE
+				if [[ -n "$REMOTE" ]]; then
+					echo "--> UNSUPPORTED: cannot use remote device ($DUMP_HOST:$DUMP_DEVICE) for ufs restore"
+					exit 1
+				fi
+				$UFSRESTORE xvf $DUMP_DEVICE $FILE
 				;;
 			*)
 				echo "--> ERROR: Unrecognized filesystem type"
@@ -614,7 +618,7 @@ toc)
 	toc_read
 	;;
 position)
-	tape_position
+	tape_position $2
 	;;
 register)
 	log_register
