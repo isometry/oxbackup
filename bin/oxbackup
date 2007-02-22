@@ -117,9 +117,11 @@ GREP=/usr/xpg4/bin/grep
 LESS=/usr/bin/less
 LOGADM=/usr/sbin/logadm
 MAIL=/usr/bin/mailx
+MKTEMP=/usr/bin/mktemp
 MT=/usr/bin/mt
 PAX=/usr/bin/pax
 PR=/usr/xpg4/bin/pr
+RM=/usr/xpg4/bin/rm
 SED=/usr/xpg4/bin/sed
 SLEEP=/usr/bin/sleep
 TEE=/usr/bin/tee
@@ -218,9 +220,9 @@ function tape_status
 function tape_rewind
 {
 	if (( NO_TAPE > 0 || NO_REWIND > 0 )); then
-		echo "--> skipped tape rewind"
+		echo "--> skipped tape rewind" 1>&2
 	else
-		echo "--> rewinding tape"
+		echo "--> rewinding tape" 1>&2
 		${REMOTE:+$RSH $DUMP_HOST} $MT -f $DUMP_DEVICE rewind
 	fi
 	return $?
@@ -572,35 +574,46 @@ function backup_all
 function restore
 {
 	ROOT=$1
-	echo "==> Starting restore ${ROOT:+from $1}"
-	echo "--> WARNING: this will restore to the current directory ($(pwd))!"
+	echo "==> initiating restore ${ROOT:+from $ROOT}"
+	echo "--> WARNING: restore will be to the current directory ($(pwd))!"
 	while [[ -z "$ROOT" ]]; do
 		read ROOT?"Enter source filesystem mountpoint: "
 	done
-	read FILE?"Enter file patterns to restore: "
-	toc_read | tail +1 | while read NUM FSTYPE DEVICE MOUNTPOINT; do
+
+	TOC_TEMP=$($MKTEMP)
+	toc_read > $TOC_TEMP
+	tail +1 $TOC_TEMP | while read NUM FSTYPE DEVICE MOUNTPOINT; do
 		if [[ "$MOUNTPOINT" = "$ROOT" ]]; then
-			tape_position $NUM
-			case $FSTYPE in
-			zfs)
-				$PAX -rvf <(tape_read ibs=63k) $FILE
-				;;
-			ufs)
-				if [[ -n "$REMOTE" ]]; then
-					echo "--> UNSUPPORTED: cannot use remote device ($DUMP_HOST:$DUMP_DEVICE) for ufs restore"
-					exit 1
-				fi
-				$UFSRESTORE xvf $DUMP_DEVICE $FILE
-				;;
-			*)
-				echo "--> ERROR: Unrecognized filesystem type"
-				exit 1
-				;;
-			esac
-			exit
+			echo "--> matched entry in table of contents: $NUM $FSTYPE $DEVICE $MOUNTPOINT"
+			break
 		fi
 	done
-	echo "--> ERROR: $ROOT not found in table of contents"
+	$RM $TOC_TEMP
+
+	if (( NUM )); then
+		case $FSTYPE in
+		zfs)
+			tape_position $NUM
+			echo "--> pax does not support interaction"
+			read FILE?"Enter file patterns to restore: "
+			$PAX -rvf <(tape_read ibs=63k) $FILE
+			;;
+		ufs)
+			if [[ -n "$REMOTE" ]]; then
+				echo "--> ERROR: cannot use remote device ($DUMP_HOST:$DUMP_DEVICE) for ufs restore"
+			else
+				tape_position $NUM
+				echo "--> initiating interactive restore"
+				$UFSRESTORE ivf $DUMP_DEVICE
+			fi
+			;;
+		*)
+			echo "--> ERROR: Unrecognized filesystem type: $FSTYPE"
+			;;
+		esac
+	else
+		echo "--> ERROR: no match in table of contents"
+	fi
 }
 
 # Carry out action
