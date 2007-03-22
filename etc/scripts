@@ -5,6 +5,11 @@
 # pre|post	mountpoint	commands ...
 # pre		ALL			echo foo
 # post		ALL			echo bar
-pre			/			svcadm disable ntp
-post		/			svcadm enable ntp
+### NTP has to be temporarily stopped in order to snapshot the root filesystem.
+## Solaris 9:
+#pre			/			/etc/init.d/xntpd stop; sleep 1
+#post		/			svcadm enable ntp
+## Solaris 10:
+#pre			/			svcadm disable ntp; sleep 1
+#post		/			svcadm enable ntp
 
