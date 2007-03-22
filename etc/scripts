@@ -8,7 +8,7 @@
 ### NTP has to be temporarily stopped in order to snapshot the root filesystem.
 ## Solaris 9:
 #pre			/			/etc/init.d/xntpd stop; sleep 1
-#post		/			svcadm enable ntp
+#post		/			/etc/init.d/xntpd start
 ## Solaris 10:
 #pre			/			svcadm disable ntp; sleep 1
 #post		/			svcadm enable ntp
