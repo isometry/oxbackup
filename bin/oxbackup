@@ -6,6 +6,7 @@
 #
 
 PATH=/usr/sbin:/usr/xpg4/bin:/usr/bin:$PATH
+SHELL=/usr/xpg4/bin/sh
 
 BASE=$(cd $(dirname $0)/..; pwd)
 LOG_FILE=$BASE/log/backup.log
@@ -344,7 +345,7 @@ function script_process
 		| while read WHEN FS COMMAND; do
 			if [[ "$1" == "$WHEN" && "$2" == "$FS" ]]; then
 				echo "--> executing: ( $COMMAND )"
-				( $COMMAND ) 2>&1 | script_pipe
+				$SHELL -c "$COMMAND" 2>&1 | script_pipe
 			fi
 		done
 	else
