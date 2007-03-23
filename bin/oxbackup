@@ -203,7 +203,7 @@ function log_pipe
 # Read backup log
 function log_page
 {
-	$CAT $LOG_FILE | highlight | $ENV LESS= $LESS -eR
+	$CAT $LOG_FILE | highlight | $ENV LESS= $LESS -er
 }
 
 # Check tape status
