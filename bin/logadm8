@@ -1,0 +1,34 @@
+#!/usr/xpg4/bin/sh
+# RB 2007/03/23
+# $Id$
+#
+# Log rotation utility for use on Solaris 8 where logadm is unavailable.
+#
+
+PATH=/usr/sbin:/usr/xpg4/bin:/usr/bin:$PATH
+SHELL=/usr/xpg4/bin/sh
+
+BASE=$(cd $(dirname $0)/..; pwd)
+
+LOG_FILE=$BASE/log/backup.log
+TOC_FILE=$BASE/log/toc
+
+LOG_COUNT=28
+
+((i = LOG_COUNT))
+[[ -f $LOG_FILE.$((i)) ]] && rm $LOG_FILE.$((i))
+[[ -f $TOC_FILE.$((i)) ]] && rm $TOC_FILE.$((i))
+((i -= 1))
+
+while ((i >= 0)); do
+	[[ -f $LOG_FILE.$((i)) ]] && mv $LOG_FILE.$((i)) $LOG_FILE.$((i+1))
+	[[ -f $TOC_FILE.$((i)) ]] && mv $TOC_FILE.$((i)) $TOC_FILE.$((i+1))
+	((i -= 1))
+done
+
+[[ -f $LOG_FILE ]] && mv $LOG_FILE $LOG_FILE.0
+[[ -f $TOC_FILE ]] && mv $TOC_FILE $TOC_FILE.0
+
+:> $LOG_FILE
+:> $TOC_FILE
+

@@ -116,7 +116,11 @@ FIND=/usr/xpg4/bin/find
 FSSNAP=/usr/sbin/fssnap
 GREP=/usr/xpg4/bin/grep
 LESS=/usr/bin/less
-LOGADM=/usr/sbin/logadm
+if [[ -x /usr/sbin/logadm ]]; then
+	LOGADM=/usr/sbin/logadm
+else
+	LOGADM=$BASE/bin/logadm8
+fi
 MAIL=/usr/bin/mailx
 MKTEMP=/usr/bin/mktemp
 MT=/usr/bin/mt
