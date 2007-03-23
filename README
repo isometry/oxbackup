@@ -2,7 +2,7 @@
 
 First, checkout the latest version from subversion:
 
-# svn co svn://csdns/backup/trunk /sysadmin/backup
+# svn co svn://csdns/backup /sysadmin/backup
 
 == Log rotation ==
 
