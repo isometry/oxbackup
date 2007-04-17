@@ -462,7 +462,7 @@ function snap_create_ufs
 	if (( SNAPSHOT_UFS > 0 && NOSNAP == 0 )); then
 		echo "--> creating ufs snapshot: $2" 1>&2
 		# The following prints the path to the snap device
-		$FSSNAP -F ufs -o maxsize=FSSNAP_MAXSIZE,bs=$BACKING_STORE,unlink $2
+		$FSSNAP -F ufs -o maxsize=$FSSNAP_MAXSIZE,bs=$BACKING_STORE,unlink $2
 		if (( $? > 0 )); then
 			echo "--> ERROR: snapshot creation failed" 1>&2
 			echo "--> proceeding with non-snap backup" 1>&2
