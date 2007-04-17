@@ -397,7 +397,7 @@ function mail_users
 function snap_list_zfs
 {
 	SNAPLIST=$($ZFS list -t snapshot -Ho name | $GREP -Fv 'no datasets available' | $GREP '@backup$')
-	if [[ -n "SNAPLIST" ]]; then
+	if [[ -n "$SNAPLIST" ]]; then
 		echo "==> WARNING: zfs@backup snapshots exist:"
 		for SNAP in $SNAPLIST; do
 			echo "    $SNAP"
@@ -411,8 +411,8 @@ function snap_list_zfs
 # List existing ufs backup snapshots
 function snap_list_ufs
 {
-	SNAPLIST=$($FSSNAP -i | $AWK 'print $2')
-	if [[ -n "SNAPLIST" ]]; then
+	SNAPLIST=$($FSSNAP -i | $AWK '{print $2}')
+	if [[ -n "$SNAPLIST" ]]; then
 		echo "==> WARNING: ufs snapshots exist for the following filesystems:"
 		for SNAP in $SNAPLIST; do
 			echo "    $SNAP"
