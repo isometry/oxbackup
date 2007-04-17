@@ -32,6 +32,7 @@ function usage
 	echo "   help                     # display this message (default)"
 	echo " * backup                   # execute backup"
 	echo " * check                    # view backup log"
+	echo " * snaplist                 # list existing filesystem snapshots"
 	echo " * restore [/mountpoint]    # execute restore"
 	echo " * toc                      # display table of contents"
 	echo "   position                 # position tape"
@@ -392,6 +393,44 @@ function mail_users
 	$MAIL -s "Message from $HOSTNAME: backup failed" $MAIL_USERS < $LOG_FILE
 }
 
+# List existing zfs backup snapshots
+function snap_list_zfs
+{
+	SNAPLIST=$($ZFS list -t snapshot -Ho name | $GREP -Fv 'no datasets available' | $GREP '@backup$')
+	if [[ -n "SNAPLIST" ]]; then
+		echo "==> WARNING: zfs@backup snapshots exist:"
+		for SNAP in $SNAPLIST; do
+			echo "    $SNAP"
+		done
+		echo "--> manually remove using '$ZFS destroy filesystem@backup'"
+	else
+		echo "==> no zfs@backup snapshots exist"
+	fi
+}
+
+# List existing ufs backup snapshots
+function snap_list_ufs
+{
+	SNAPLIST=$($FSSNAP -i | $AWK 'print $2')
+	if [[ -n "SNAPLIST" ]]; then
+		echo "==> WARNING: ufs snapshots exist for the following filesystems:"
+		for SNAP in $SNAPLIST; do
+			echo "    $SNAP"
+		done
+		echo "--> manually remove using '$FSSNAP -d /filesystem'"
+	else
+		echo "==> no ufs snapshots exist"
+	fi
+}
+
+# List all existing filesystem snapshots
+function snap_list
+{
+	for t in $FSTYPES; do
+		snap_list_$t
+	done
+}
+
 # Check if a zfs snapshot exists
 # $1 = SNAPSHOT
 # Returns: 0 if snapshot exists, >0 otherwise
@@ -607,6 +646,8 @@ function backup_all
 		script_process post ALL
 		separator
 		tape_eject
+		separator
+		snap_list
 		echo "===> Backup completed: $(datestamp)"
 	} 2>&1 | log_pipe
 }
@@ -672,6 +713,9 @@ restore)
 	;;
 check)
 	log_page
+	;;
+snaplist)
+	snap_list
 	;;
 toc)
 	toc_read
