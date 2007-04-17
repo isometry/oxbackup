@@ -24,18 +24,19 @@ function usage
 	echo "Options:"
 	echo "       -f [[user@]host:]device  # backup device"
 	echo "       -b path                  # backing-store for ufs snapshots"
-	echo "       -t                       # no tape"
-	echo "       -n                       # no scripts"
-	echo "       -e                       # no eject"
-	echo "       -v                       # view output"
-	echo "       -c                       # no colour"
+	echo "       -t                       # dry run without tape"
+	echo "       -n                       # ignore pre/post scripts"
+	echo "       -e                       # don't eject the tape"
+	echo "       -v                       # send script output to terminal"
 	echo "Actions:"
-	echo "       backup                   # execute backup (default)"
-	echo "       check                    # view backup log"
-	echo "       toc                      # display table of contents"
+	echo "       help                     # display this message"
+	echo "     * backup                   # execute backup"
+	echo "     * check                    # view backup log"
+	echo "     * restore [/mountpoint]    # execute restore"
+	echo "     * toc                      # display table of contents"
 	echo "       position                 # position tape"
 	echo "       register                 # register with logadm"
-	echo "       rotate                   # rotate backup log"
+	echo "       rotate                   # force rotation of backup log"
 	exit $1
 }
 
@@ -81,13 +82,14 @@ shift $((OPTIND - 1))
 : ${NO_EJECT:=0}
 : ${NO_SCRIPT:=0}
 : ${NO_COLOUR:=0}
-: ${FSTYPES:=ufs zfs}
+: ${FSTYPES:=ufs zfs}		# filesystem types that we wish to backup
 : ${PAX_FORMAT:=xustar}
-: ${SNAPSHOT_ZFS:=1}
-: ${SNAPSHOT_UFS:=1}
-: ${BACKING_STORE:=/snap}
+: ${SNAPSHOT_ZFS:=1}		# should zfs filesystems be snapshot?
+: ${SNAPSHOT_UFS:=1}		# should ufs filesystems be snapshot?
+: ${FSSNAP_MAXSIZE:=512m}	# maximum size for the ufs snapshot backing store
+: ${BACKING_STORE:=/snap}	# location of the ufs snapshot backing store
 : ${MAIL_LOG:=0}
-: ${MAIL_USERS:=p0073773@brookes.ac.uk}
+: ${MAIL_USERS:=cs.ops@brookes.ac.uk}
 
 # Setup syntax highlighting
 COLOUR_normal="[0m"
@@ -206,13 +208,15 @@ function log_page
 	$CAT $LOG_FILE | highlight | $ENV LESS= $LESS -er
 }
 
-# Check tape status
+# Check tape status, potentially on remote host
 function tape_status
 {
 	if (( NO_TAPE > 0 )); then
 		echo "--> running without tape"
 	else
 		echo "--> checking tape status"
+		# The ${REMOTE:+foo} syntax returns "foo" if FOO is set,
+		# otherwise nothing.
 		${REMOTE:+$RSH $DUMP_HOST} $MT -f $DUMP_DEVICE status
 		if (( $? > 0 )); then
 			echo "--> NO TAPE: dump device reset to /dev/null"
@@ -221,7 +225,7 @@ function tape_status
 	fi
 }
 
-# Rewind tape
+# Rewind tape, potentially on remote host
 function tape_rewind
 {
 	if (( NO_TAPE > 0 || NO_REWIND > 0 )); then
@@ -233,7 +237,7 @@ function tape_rewind
 	return $?
 }
 
-# Eject tape
+# Eject tape, potentially on remote host
 function tape_eject
 {
 	if (( NO_TAPE > 0 || NO_EJECT > 0 )); then
@@ -245,8 +249,12 @@ function tape_eject
 	return $?
 }
 
-# Write data to tape using dd
+# Write data to tape using dd, potentially on remote host
 # $* = dd directives
+#
+# For dumper programs which expect to write to a file or device rather than
+# into a pipe, this can be used to set up a named pipe using the >(tape_write)
+# syntax.
 function tape_write
 {
 	if (( NO_TAPE > 0 )); then
@@ -254,15 +262,21 @@ function tape_write
 		$DD $* of=/dev/null
 	else
 		if [[ -n "$REMOTE" ]]; then
+			# Establish a tunnel to dd(1) running on the remote machine
 			$RSH $DUMP_HOST "$DD $* of=$DUMP_DEVICE"
 		else
+			# Run dd(1) locally, piping from stdin to $DUMP_DEVICE
 			$DD $* of=$DUMP_DEVICE
 		fi
 	fi
 }
 
-# Read data from tape using dd
+# Read data from tape using dd, potentially on remote host
 # $* = dd directives
+#
+# For restore programs which expect to read from a file or device rather than
+# from a pipe, this can be used to set up a named pipe using the <(tape_read)
+# syntax.
 function tape_read
 {
 	if (( NO_TAPE > 0 )); then
@@ -270,8 +284,10 @@ function tape_read
 		exit 1
 	else
 		if [[ -n "$REMOTE" ]]; then
+			# Establish a tunnel to dd(1) running on the remote machine
 			$RSH $DUMP_HOST "$DD $* if=$DUMP_DEVICE"
 		else
+			# Run dd(1) locally, piping from $DUMP_DEVICE to stdout
 			$DD $* if=$DUMP_DEVICE
 		fi
 	fi
@@ -293,12 +309,23 @@ function toc_create
 {
 	echo "--> generating table of contents"
 	if [[ -f $EXCLUDE_FILE ]]; then
+		# This 'magic' line joins all the non-comment, non-blank lines (i.e.
+		# the mountpoints) in the exclude file with a '|' character (regular
+		# expression "OR"), prefixes with '^(' and suffixes with ')$'.
+		# This produces a regular expression of the form '^(foo|bar|bim)$'
+		# which is later used to determine if a given filesystem should be
+		# excluded.
 		EXCLUDE=$($AWK 'BEGIN {printf "^(";} $0 !~ /#/ && $0 != "" {printf "%s%s", (i++>0)?"|":"", $0;} END {printf ")$";}' $EXCLUDE_FILE)
 	else
 		echo "--> no filesystem excludes: $EXCLUDE_FILE not found"
+		# If the exclude file doesn't exist, match nothing.
 		EXCLUDE='^$'
 	fi
+	# Loop over each supported filesystem type
 	for t in $FSTYPES; do
+		# Look for all instances of the current filesystem type in the mnttab,
+		# whole mountpoint does not match the EXCLUDE regular expression, and
+		# print the type, device and mointpoint.
 		$AWK -v fstype=$t -v exclude=$EXCLUDE \
 			'$3 == fstype && $2 !~ exclude {print $3, $1, $2}' \
 		< /etc/mnttab
@@ -313,6 +340,8 @@ function toc_create
 function toc_write
 {
 	echo "--> writing table of contents"
+	# Write a timestamp followed by the TOC_FILE to tape_write via a standard
+	# pipe. Written as raw data, this can later be read with a simple dd(1).
 	echo Backup of $HOSTNAME: $(datestamp) | $CAT - $TOC_FILE | tape_write
 	return $?
 }
@@ -392,6 +421,14 @@ function snap_exists_ufs
 function snap_create_zfs
 {
 	HAS_SNAP=0
+	# Determine whether the given mountpoint appears in the nosnap file.
+	# First a named pipe is created containing the non-comment, non-blank lines
+	# of NOSNAP_FILE.
+	# This named pipe is used as the pattern file for grep (-f), which does a
+	# fixed string search (-F), counting (-c) the number of times that entries
+	# in the pattern file appear in the the string received on stdin (the
+	# mountpoint). If the mountpoint doesn't appear in nosnap, this returns 0,
+	# otherwise 1.
 	NOSNAP=$(echo $2 | $GREP -cF -f <(echo NONE | $CAT - $NOSNAP_FILE | $GREP -v '#' | $GREP -v '^$'))
 	if (( SNAPSHOT_ZFS > 0 && NOSNAP == 0 )); then
 		echo "--> creating zfs snapshot of $2" 1>&2
@@ -425,7 +462,7 @@ function snap_create_ufs
 	if (( SNAPSHOT_UFS > 0 && NOSNAP == 0 )); then
 		echo "--> creating ufs snapshot: $2" 1>&2
 		# The following prints the path to the snap device
-		$FSSNAP -F ufs -o maxsize=512m,bs=$BACKING_STORE,unlink $2
+		$FSSNAP -F ufs -o maxsize=FSSNAP_MAXSIZE,bs=$BACKING_STORE,unlink $2
 		if (( $? > 0 )); then
 			echo "--> ERROR: snapshot creation failed" 1>&2
 			echo "--> proceeding with non-snap backup" 1>&2
@@ -564,7 +601,7 @@ function backup_all
 		while read NUM FSTYPE DEVICE MOUNTPOINT; do
 			separator
 			backup_fs $FSTYPE $DEVICE $MOUNTPOINT
-			(( STATUS > 0 )) && MAIL_LOG=1
+			(( $? > 0 )) && MAIL_LOG=1
 		done < $TOC_FILE
 		separator
 		script_process post ALL
@@ -601,6 +638,7 @@ function restore
 			tape_position $NUM
 			echo "--> pax does not support interaction"
 			read FILE?"Enter file patterns to restore: "
+			# pax(1) expects to read from a file, so give it a named pipe.
 			$PAX -rvf <(tape_read ibs=63k) $FILE
 			;;
 		ufs)
@@ -609,6 +647,9 @@ function restore
 			else
 				tape_position $NUM
 				echo "--> initiating interactive restore"
+				# ufsrestore(1) doesn't happily read from a named pipe, so for
+				# now we support local restores only, and it reads directly
+				# from DUMP_DEVICE!
 				$UFSRESTORE ivf $DUMP_DEVICE
 			fi
 			;;

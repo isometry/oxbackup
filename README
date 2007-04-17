@@ -4,11 +4,16 @@ First, checkout the latest version from subversion:
 
 # svn co svn://csdns/backup /sysadmin/backup
 
+All subsequent paths are relative to /sysadmin/backup (or wherever the working
+copy was created).
+
+
 == Log rotation ==
 
 If the system has logadm available (Solaris 9+), then register with it:
 
 # bin/oxbackup register
+
 
 == UFS snapshots ==
 
@@ -18,19 +23,23 @@ to house them.
 With ZFS available, just create a filesystem at /snap.
 # zfs create pool/snap
 # zfs set mountpoint=/snap pool/snap
+# chmod 700 /snap
 
 Lacking ZFS, a symlink /snap -> /var/tmp will suffice:
 # ln -s /var/tmp /snap
 
-To disable UFS snapshots altogether, simply set the SNAPSHOT_UFS environment
-variable to 0:
+To disable UFS snapshots altogether, you could simply set the SNAPSHOT_UFS
+environment variable to 0:
 
 # env SNAPSHOT_UFS=0 ...
 
+
 == Exclusions ==
 
-You can configure exclusions and filesystems which you want backed up "live".
-The fileformat for both these files is one filesystem mointpoint per-line.
+You can configure exclusions and filesystems which you want backed up "live"
+(without being snapshot).
+The fileformat for both these configuration files is one filesystem mointpoint
+per-line.
 If you create a /snap zfs, then it should be excluded; if you backed /snap in
 /var, then /var should be backed up live.
 
@@ -40,6 +49,7 @@ If you create a /snap zfs, then it should be excluded; if you backed /snap in
 # vi etc/nosnap
   /var
 
+
 == Scripts ==
 
 The backup scripts supports configuration of arbitrary pre- and post-backup
@@ -47,6 +57,7 @@ scripts via etc/scripts.
 
 If ntpd runs on the system, then it must be stopped in order to snapshot the
 root filesystem. Examples for Solaris 9/10 are included.
+
 
 == Scheduling ==
 
@@ -58,6 +69,7 @@ Finally, add an appropriate entry to the crontab:
 Were you backing up to a remote tape, pass the appropriate arguments:
 
   30 2 * * 2-6 /sysadmin/backup/bin/oxbackup -f csdns:/dev/rmt/1cn backup
+
 
 = Checking the backup =
 
