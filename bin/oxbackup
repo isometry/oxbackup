@@ -431,6 +431,7 @@ function snap_list
 	for t in $FSTYPES; do
 		snap_list_$t
 	done
+	return 0
 }
 
 # Check if a zfs snapshot exists
