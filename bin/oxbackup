@@ -471,7 +471,7 @@ function snap_create_zfs
 	# in the pattern file appear in the the string received on stdin (the
 	# mountpoint). If the mountpoint doesn't appear in nosnap, this returns 0,
 	# otherwise 1.
-	NOSNAP=$(echo $2 | $GREP -cF -f <(echo NONE | $CAT - $NOSNAP_FILE | $GREP -v '#' | $GREP -v '^$'))
+	NOSNAP=$(echo $2 | $GREP -Fcx -f <(echo NONE | $CAT - $NOSNAP_FILE | $GREP -v '#' | $GREP -v '^$'))
 	if (( SNAPSHOT_ZFS > 0 && NOSNAP == 0 )); then
 		echo "--> creating zfs snapshot of $2" 1>&2
 		SNAPSHOT=$2/.zfs/snapshot/backup
@@ -500,7 +500,8 @@ function snap_create_zfs
 function snap_create_ufs
 {
 	HAS_SNAP=0
-	NOSNAP=$(echo $2 | $GREP -cF -f <(echo NONE | $CAT - $NOSNAP_FILE | $GREP -v '#' | $GREP -v '^$'))
+	# See comment above in snap_create_zfs
+	NOSNAP=$(echo $2 | $GREP -Fcx -f <(echo NONE | $CAT - $NOSNAP_FILE | $GREP -v '#' | $GREP -v '^$'))
 	if (( SNAPSHOT_UFS > 0 && NOSNAP == 0 )); then
 		echo "--> creating ufs snapshot: $2" 1>&2
 		# The following prints the path to the snap device
