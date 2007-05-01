@@ -129,6 +129,7 @@ MKTEMP=/usr/bin/mktemp
 MT=/usr/bin/mt
 PAX=/usr/bin/pax
 PR=/usr/xpg4/bin/pr
+PRINTF=/usr/bin/printf
 RM=/usr/xpg4/bin/rm
 SED=/usr/xpg4/bin/sed
 SLEEP=/usr/bin/sleep
@@ -343,7 +344,12 @@ function toc_write
 	echo "--> writing table of contents"
 	# Write a timestamp followed by the TOC_FILE to tape_write via a standard
 	# pipe. Written as raw data, this can later be read with a simple dd(1).
-	echo Backup of $HOSTNAME: $(datestamp) | $CAT - $TOC_FILE | tape_write
+	#
+	# printf(1) is used, because under Solaris9/x86 the first line written to
+	# the tape is interpreted "specially", and the write fails if it contains a
+	# letter followed by a symbol (e.g. 'lr1:'), so we insert a leading blank
+	# line as a workaround.
+	$PRINTF "\nBackup of $HOSTNAME: $(datestamp)\n" | $CAT - $TOC_FILE | tape_write
 	return $?
 }
 
