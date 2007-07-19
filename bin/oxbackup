@@ -688,9 +688,9 @@ function restore
 		zfs)
 			tape_position $NUM
 			echo "--> pax does not support interaction"
-			read FILE?"Enter file patterns to restore: "
+			read FILE?"Enter file pattern(s) to restore (fnmatch style): "
 			# pax(1) expects to read from a file, so give it a named pipe.
-			$PAX -rvf <(tape_read ibs=63k) $FILE
+			$PAX -r -pe -v -f <(tape_read ibs=63k) $FILE
 			;;
 		ufs)
 			if [[ -n "$REMOTE" ]]; then
