@@ -534,8 +534,8 @@ function snap_create_ufs
 function snap_delete_zfs
 {
 	if ! snap_exists_zfs $1@backup; then
-		echo "--> ERROR: snapshot of $2 has disappeared"
-		return 1
+		echo "--> WARNING: snapshot of $2 has disappeared"
+		return 0
 	fi
 	echo "--> deleting zfs snapshot of $2"
 	$ZFS destroy $1@backup
@@ -553,8 +553,8 @@ function snap_delete_zfs
 function snap_delete_ufs
 {
 	if ! snap_exists_ufs $2; then
-		echo "--> ERROR: snapshot of $2 has disappeared"
-		return 1
+		echo "--> WARNING: snapshot of $2 has disappeared"
+		return 0
 	fi
 	echo "--> deleting ufs snapshot of $2"
 	$FSSNAP -d $2
