@@ -92,6 +92,9 @@ shift $((OPTIND - 1))
 : ${MAIL_LOG:=0}
 : ${MAIL_USERS:=cs.ops@brookes.ac.uk}
 
+# Make MAIL_LOG available to child processes
+export MAIL_LOG
+
 # Setup syntax highlighting
 COLOUR_normal="[0m"
 COLOUR_dgrey="[1;30m"
@@ -150,6 +153,11 @@ function datestamp
 	$DATE +'%Y-%m-%d %H:%M:%S'
 }
 
+function timestamp
+{
+	$DATE +'%H:%M:%S'
+}
+
 # Print a separator
 function separator
 {
@@ -170,7 +178,7 @@ function highlight
 			-e "s/BEGIN/${COLOUR_dgreen}&${COLOUR_normal}/" \
 			-e "s/COMPLETE/${COLOUR_dgreen}&${COLOUR_normal}/" \
 			-e "s/^-*$/${COLOUR_dgrey}&${COLOUR_normal}/" \
-			-e "s/^==>.*/${COLOUR_white}&${COLOUR_normal}/" \
+			-e "s/^=*>.*/${COLOUR_white}&${COLOUR_normal}/" \
 			-e "s/^-->.*/${COLOUR_white}&${COLOUR_normal}/" \
 			-e "s/^#.*/${COLOUR_dgrey}&${COLOUR_normal}/"
 	fi
@@ -349,7 +357,7 @@ function toc_write
 	# the tape is interpreted "specially", and the write fails if it contains a
 	# letter followed by a symbol (e.g. 'lr1:'), so we insert a leading blank
 	# line as a workaround.
-	$PRINTF "\nBackup of $HOSTNAME: $(datestamp)\n" | $CAT - $TOC_FILE | tape_write
+	$PRINTF "\nBackup of $HOSTNAME [$(datestamp)]\n" | $CAT - $TOC_FILE | tape_write
 	return $?
 }
 
@@ -514,6 +522,7 @@ function snap_create_ufs
 		$FSSNAP -F ufs -o maxsize=$FSSNAP_MAXSIZE,bs=$BACKING_STORE,unlink $2
 		if (( $? > 0 )); then
 			echo "--> ERROR: snapshot creation failed" 1>&2
+			echo "--> check for processes holding locks on the filesystem" 1>&2
 			echo "--> proceeding with non-snap backup" 1>&2
 			echo $1
 		else
@@ -534,15 +543,15 @@ function snap_create_ufs
 function snap_delete_zfs
 {
 	if ! snap_exists_zfs $1@backup; then
-		echo "--> WARNING: snapshot of $2 has disappeared"
+		echo "--> WARNING: snapshot of $2 has disappeared [$(timestamp)]"
 		return 0
 	fi
-	echo "--> deleting zfs snapshot of $2"
+	echo "--> deleting zfs snapshot of $2 [$(timestamp)]"
 	$ZFS destroy $1@backup
 	if (( $? > 0 )); then
-		echo "--> ERROR: snapshot deletion failed"
+		echo "--> ERROR: snapshot deletion failed [$(timestamp)]"
 	else
-		echo "--> snapshot successfully deleted"
+		echo "--> snapshot successfully deleted [$(timestamp)]"
 	fi
 }
 
@@ -553,15 +562,15 @@ function snap_delete_zfs
 function snap_delete_ufs
 {
 	if ! snap_exists_ufs $2; then
-		echo "--> WARNING: snapshot of $2 has disappeared"
+		echo "--> WARNING: snapshot of $2 has disappeared [$(timestamp)]"
 		return 0
 	fi
-	echo "--> deleting ufs snapshot of $2"
+	echo "--> deleting ufs snapshot of $2 [$(timestamp)]"
 	$FSSNAP -d $2
 	if (( $? > 0 )); then
-		echo "--> ERROR: snapshot deletion failed"
+		echo "--> ERROR: snapshot deletion failed [$(timestamp)]"
 	else
-		echo "--> snapshot successfully deleted"
+		echo "--> snapshot successfully deleted [$(timestamp)]"
 	fi
 }
 
@@ -573,18 +582,18 @@ function dump_zfs
 {
 	cd $3
 	if (( $? > 0 )); then
-		echo "==> ERROR: $3 not found, dump of $2 failed: $(datestamp)"
+		echo "==> ERROR: $3 not found, dump of $2 failed [$(timestamp)]"
 		return 1
 	fi
-	echo "==> BEGIN: dump of $2 via pax: $(datestamp)"
+	echo "==> BEGIN: dump of $2 via pax [$(timestamp)]"
 	echo "--> running pax..."
 	$FIND . -xdev '!' '(' -type d -o -type s ')' -print \
 	| $PAX -w -pe -x $PAX_FORMAT -X -s '#^./##' -f >(tape_write obs=63k)
 	STATUS=$?
 	if (( STATUS > 0 )); then
-		echo "==> ERROR: dump of $2 failed: $(datestamp)"
+		echo "==> ERROR: dump of $2 failed [$(timestamp)]"
 	else
-		echo "==> COMPLETE: dump of $2 successful: $(datestamp)"
+		echo "==> COMPLETE: dump of $2 successful [$(timestamp)]"
 	fi
 	cd - >/dev/null
 	# Give the >() pipe time to close
@@ -598,14 +607,14 @@ function dump_zfs
 # $3 = SNAPSHOT (device)
 function dump_ufs
 {
-	echo "==> BEGIN: dump of $2 via ufsdump: $(datestamp)"
+	echo "==> BEGIN: dump of $2 via ufsdump [$(timestamp)"
 	echo "--> running ufsdump..."
 	$UFSDUMP 0cf >(tape_write obs=63k) $SNAPSHOT
 	STATUS=$?
 	if (( STATUS > 0 )); then
-		echo "==> ERROR: dump of $2 failed: $(datestamp)"
+		echo "==> ERROR: dump of $2 failed [$(timestamp)]"
 	else
-		echo "==> COMPLETE: dump of $2 successful: $(datestamp)"
+		echo "==> COMPLETE: dump of $2 successful [$(timestamp)]"
 	fi
 	# Give the >() pipe time to close
 	$SLEEP 5
@@ -618,7 +627,7 @@ function dump_ufs
 # $3 = MOUNTPOINT
 function backup_fs
 {
-	echo "==> Backing up $HOSTNAME:$3 to ${REMOTE:+$DUMP_HOST:}$DUMP_DEVICE"
+	echo "==> Backing up $HOSTNAME:$3 to ${REMOTE:+$DUMP_HOST:}$DUMP_DEVICE [$(datestamp)]"
 	script_process pre $3
 	SNAPSHOT=$(snap_create_$1 $2 $3)
 	# $? > 0 implies snapshot was successful
@@ -639,7 +648,9 @@ function backup_all
 {
 	log_rotate
 	{
-		echo "===> Backup commenced: $(datestamp)"
+		separator
+		echo "===> Backup commenced [$(datestamp)]"
+		separator
 		tape_status
 		tape_rewind
 		separator
@@ -658,7 +669,9 @@ function backup_all
 		tape_eject
 		separator
 		snap_list
-		echo "===> Backup completed: $(datestamp)"
+		separator
+		echo "===> Backup completed [$(datestamp)]"
+		separator
 	} 2>&1 | log_pipe
 }
 
