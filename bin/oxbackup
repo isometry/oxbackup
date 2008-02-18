@@ -388,7 +388,7 @@ function script_process
 		return 0
 	fi
 	if [[ -f "$SCRIPT_FILE" ]]; then
-		echo "--> processing $1-backup scripts for $2"
+		echo "--> processing $1-backup scripts for $2 [$(timestamp)]"
 		$AWK '$1 ~ /^(pre|post)$/' $SCRIPT_FILE \
 		| while read WHEN FS COMMAND; do
 			if [[ "$1" == "$WHEN" && "$2" == "$FS" ]]; then
@@ -487,11 +487,11 @@ function snap_create_zfs
 	# otherwise 1.
 	NOSNAP=$(echo $2 | $GREP -Fcx -f <(echo NONE | $CAT - $NOSNAP_FILE | $GREP -v '#' | $GREP -v '^$'))
 	if (( SNAPSHOT_ZFS > 0 && NOSNAP == 0 )); then
-		echo "--> creating zfs snapshot of $2" 1>&2
+		echo "--> creating zfs snapshot of $2 [$(timestamp)]" 1>&2
 		SNAPSHOT=$2/.zfs/snapshot/backup
 		$ZFS snapshot $1@backup
 		if [[ $? -eq 0 && -d $SNAPSHOT ]]; then
-			echo "--> snapshot successfully created" 1>&2
+			echo "--> snapshot successfully created [$(timestamp)]" 1>&2
 			echo $SNAPSHOT
 			HAS_SNAP=1
 		else
@@ -517,7 +517,7 @@ function snap_create_ufs
 	# See comment above in snap_create_zfs
 	NOSNAP=$(echo $2 | $GREP -Fcx -f <(echo NONE | $CAT - $NOSNAP_FILE | $GREP -v '#' | $GREP -v '^$'))
 	if (( SNAPSHOT_UFS > 0 && NOSNAP == 0 )); then
-		echo "--> creating ufs snapshot: $2" 1>&2
+		echo "--> creating ufs snapshot: $2 [$(timestamp)]" 1>&2
 		# The following prints the path to the snap device
 		$FSSNAP -F ufs -o maxsize=$FSSNAP_MAXSIZE,bs=$BACKING_STORE,unlink $2
 		if (( $? > 0 )); then
@@ -526,7 +526,7 @@ function snap_create_ufs
 			echo "--> proceeding with non-snap backup" 1>&2
 			echo $1
 		else
-			echo "--> snapshot successfully created" 1>&2
+			echo "--> snapshot successfully created [$(timestamp)]" 1>&2
 			HAS_SNAP=1
 		fi
 	else
@@ -607,7 +607,7 @@ function dump_zfs
 # $3 = SNAPSHOT (device)
 function dump_ufs
 {
-	echo "==> BEGIN: dump of $2 via ufsdump [$(timestamp)"
+	echo "==> BEGIN: dump of $2 via ufsdump [$(timestamp)]"
 	echo "--> running ufsdump..."
 	$UFSDUMP 0cf >(tape_write obs=63k) $SNAPSHOT
 	STATUS=$?
