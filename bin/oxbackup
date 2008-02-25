@@ -36,7 +36,6 @@ function usage
 	echo " * restore [/mountpoint]    # execute restore"
 	echo " * toc                      # display table of contents"
 	echo "   position                 # position tape"
-	echo "   register                 # register with logadm"
 	echo "   rotate                   # force rotation of backup log"
 	exit $1
 }
@@ -173,6 +172,7 @@ function highlight
 		$SED \
 			-e "s/DUMP IS DONE/${COLOUR_lgreen}&${COLOUR_normal}/" \
 			-e "s/NEEDS ATTENTION.*/${COLOUR_dred}&${COLOUR_normal}/" \
+			-e "s/TIP:.*/${COLOUR_dred}&${COLOUR_normal}/" \
 			-e "s/ERROR.*/${COLOUR_dred}&${COLOUR_normal}/" \
 			-e "s/NO TAPE.*/${COLOUR_dred}&${COLOUR_normal}/" \
 			-e "s/BEGIN/${COLOUR_dgreen}&${COLOUR_normal}/" \
@@ -184,25 +184,15 @@ function highlight
 	fi
 }
 
-# Register log with logadm
-function log_register
-{
-	$LOGADM -w backup -C 28 -p never -z 7 -t '$file.$N' "{$LOG_FILE,$TOC_FILE}"
-	if (( $? > 0 )); then
-		echo "ERROR: registering logfile with logadm"
-		usage 1
-	else
-		echo "Successfully registered with logadm"
-	fi
-}
-
 # Rotate log
 function log_rotate
 {
-	$LOGADM backup -p now
+	$LOGADM -C 28 -p now -z 7 -t '$file.$N' "{$LOG_FILE,$TOC_FILE}"
 	if (( $? > 0 )); then
-		echo "ERROR: rotating logfile ($LOG_FILE)"
+		echo "==> ERROR: rotating logfile ($LOG_FILE)"
 		usage 1
+	else
+		echo "==> Successfully rotated logfiles"
 	fi
 }
 
@@ -517,17 +507,23 @@ function snap_create_ufs
 	# See comment above in snap_create_zfs
 	NOSNAP=$(echo $2 | $GREP -Fcx -f <(echo NONE | $CAT - $NOSNAP_FILE | $GREP -v '#' | $GREP -v '^$'))
 	if (( SNAPSHOT_UFS > 0 && NOSNAP == 0 )); then
-		echo "--> creating ufs snapshot: $2 [$(timestamp)]" 1>&2
-		# The following prints the path to the snap device
-		$FSSNAP -F ufs -o maxsize=$FSSNAP_MAXSIZE,bs=$BACKING_STORE,unlink $2
-		if (( $? > 0 )); then
-			echo "--> ERROR: snapshot creation failed" 1>&2
-			echo "--> check for processes holding locks on the filesystem" 1>&2
-			echo "--> proceeding with non-snap backup" 1>&2
-			echo $1
+		if [[ -d $BACKING_STORE ]]; then
+			echo "--> creating ufs snapshot: $2 [$(timestamp)]" 1>&2
+			# The following prints the path to the snap device
+			$FSSNAP -F ufs -o maxsize=$FSSNAP_MAXSIZE,bs=$BACKING_STORE,unlink $2
+			if (( $? > 0 )); then
+				echo "--> ERROR: snapshot creation failed" 1>&2
+				echo "--> check for processes holding locks on the filesystem" 1>&2
+				echo "--> proceeding with non-snap backup" 1>&2
+				echo $1
+			else
+				echo "--> snapshot successfully created [$(timestamp)]" 1>&2
+				HAS_SNAP=1
+			fi
 		else
-			echo "--> snapshot successfully created [$(timestamp)]" 1>&2
-			HAS_SNAP=1
+			echo "--> ERROR: No snapshot backing store - create '$BACKING_STORE'" 1>&2
+			echo "--> skipped creation of ufs snapshot for $2" 1>&2
+			MAIL_LOG=1
 		fi
 	else
 		echo "--> skipped creation of ufs snapshot for $2" 1>&2
@@ -647,32 +643,30 @@ function backup_fs
 function backup_all
 {
 	log_rotate
-	{
+	separator
+	echo "===> Backup commenced [$(datestamp)]"
+	separator
+	tape_status
+	tape_rewind
+	separator
+	toc_create
+	toc_write
+	separator
+	script_process pre ALL
+	while read NUM FSTYPE DEVICE MOUNTPOINT; do
 		separator
-		echo "===> Backup commenced [$(datestamp)]"
-		separator
-		tape_status
-		tape_rewind
-		separator
-		toc_create
-		toc_write
-		separator
-		script_process pre ALL
-		while read NUM FSTYPE DEVICE MOUNTPOINT; do
-			separator
-			backup_fs $FSTYPE $DEVICE $MOUNTPOINT
-			(( $? > 0 )) && MAIL_LOG=1
-		done < $TOC_FILE
-		separator
-		script_process post ALL
-		separator
-		tape_eject
-		separator
-		snap_list
-		separator
-		echo "===> Backup completed [$(datestamp)]"
-		separator
-	} 2>&1 | log_pipe
+		backup_fs $FSTYPE $DEVICE $MOUNTPOINT
+		(( $? > 0 )) && MAIL_LOG=1
+	done < $TOC_FILE
+	separator
+	script_process post ALL
+	separator
+	tape_eject
+	separator
+	snap_list
+	separator
+	echo "===> Backup completed [$(datestamp)]"
+	separator
 }
 
 # Restore files from a filesystem
@@ -729,7 +723,8 @@ function restore
 # Carry out action
 case $ACTION in
 backup)
-	backup_all; (( MAIL_LOG > 0 )) && mail_users || exit 0
+	backup_all 2>&1 | log_pipe
+	(( MAIL_LOG > 0 )) && mail_users || exit 0
 	;;
 restore)
 	restore $2
@@ -745,9 +740,6 @@ toc)
 	;;
 position)
 	tape_position $2
-	;;
-register)
-	log_register
 	;;
 rotate)
 	log_rotate
