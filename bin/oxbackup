@@ -191,8 +191,6 @@ function log_rotate
 	if (( $? > 0 )); then
 		echo "==> ERROR: rotating logfile ($LOG_FILE)"
 		usage 1
-	else
-		echo "==> Successfully rotated logfiles"
 	fi
 }
 
@@ -642,31 +640,34 @@ function backup_fs
 # Backup all local filesystems
 function backup_all
 {
+	# Rotate log before we start piping data to it
 	log_rotate
-	separator
-	echo "===> Backup commenced [$(datestamp)]"
-	separator
-	tape_status
-	tape_rewind
-	separator
-	toc_create
-	toc_write
-	separator
-	script_process pre ALL
-	while read NUM FSTYPE DEVICE MOUNTPOINT; do
+	{
 		separator
-		backup_fs $FSTYPE $DEVICE $MOUNTPOINT
-		(( $? > 0 )) && MAIL_LOG=1
-	done < $TOC_FILE
-	separator
-	script_process post ALL
-	separator
-	tape_eject
-	separator
-	snap_list
-	separator
-	echo "===> Backup completed [$(datestamp)]"
-	separator
+		echo "===> Backup commenced [$(datestamp)]"
+		separator
+		tape_status
+		tape_rewind
+		separator
+		toc_create
+		toc_write
+		separator
+		script_process pre ALL
+		while read NUM FSTYPE DEVICE MOUNTPOINT; do
+			separator
+			backup_fs $FSTYPE $DEVICE $MOUNTPOINT
+			(( $? > 0 )) && MAIL_LOG=1
+		done < $TOC_FILE
+		separator
+		script_process post ALL
+		separator
+		tape_eject
+		separator
+		snap_list
+		separator
+		echo "===> Backup completed [$(datestamp)]"
+		separator
+	} 2>&1 | log_pipe
 }
 
 # Restore files from a filesystem
@@ -723,7 +724,7 @@ function restore
 # Carry out action
 case $ACTION in
 backup)
-	backup_all 2>&1 | log_pipe
+	backup_all
 	(( MAIL_LOG > 0 )) && mail_users || exit 0
 	;;
 restore)
