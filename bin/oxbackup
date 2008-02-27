@@ -62,7 +62,7 @@ do
 	t)	NO_TAPE=1
 		DUMP_DEVICE=/dev/null
 		;;
-	v)	OUTPUT=/dev/stdout
+	v)	OUTPUT=/dev/tty
 		;;
 	h)	usage 0
 		;;
@@ -640,34 +640,30 @@ function backup_fs
 # Backup all local filesystems
 function backup_all
 {
-	# Rotate log before we start piping data to it
-	log_rotate
-	{
+	separator
+	echo "===> Backup commenced [$(datestamp)]"
+	separator
+	tape_status
+	tape_rewind
+	separator
+	toc_create
+	toc_write
+	separator
+	script_process pre ALL
+	while read NUM FSTYPE DEVICE MOUNTPOINT; do
 		separator
-		echo "===> Backup commenced [$(datestamp)]"
-		separator
-		tape_status
-		tape_rewind
-		separator
-		toc_create
-		toc_write
-		separator
-		script_process pre ALL
-		while read NUM FSTYPE DEVICE MOUNTPOINT; do
-			separator
-			backup_fs $FSTYPE $DEVICE $MOUNTPOINT
-			(( $? > 0 )) && MAIL_LOG=1
-		done < $TOC_FILE
-		separator
-		script_process post ALL
-		separator
-		tape_eject
-		separator
-		snap_list
-		separator
-		echo "===> Backup completed [$(datestamp)]"
-		separator
-	} 2>&1 | log_pipe
+		backup_fs $FSTYPE $DEVICE $MOUNTPOINT
+		(( $? > 0 )) && MAIL_LOG=1
+	done < $TOC_FILE
+	separator
+	script_process post ALL
+	separator
+	tape_eject
+	separator
+	snap_list
+	separator
+	echo "===> Backup completed [$(datestamp)]"
+	separator
 }
 
 # Restore files from a filesystem
@@ -724,7 +720,11 @@ function restore
 # Carry out action
 case $ACTION in
 backup)
-	backup_all
+	log_rotate
+	# Open a co-process for logging and pipe stdout to it
+	log_pipe |&
+	exec >&p
+	backup_all 2>&1
 	(( MAIL_LOG > 0 )) && mail_users || exit 0
 	;;
 restore)
