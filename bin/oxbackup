@@ -163,6 +163,31 @@ function separator
 	echo "------------------------------------------------------------------------"
 }
 
+# Echo string in log format
+function log
+{
+	typeset prefix suffix
+	while getopts hsw o
+	do
+		case $o in
+		h)	prefix="===>"
+			suffix="[$(datestamp)]"
+			;;
+		s)	prefix="==> [$(timestamp)]"
+			suffix=""
+			;;
+		w)	MAIL_LOG=1
+			;;
+		esac
+	done
+	shift $((OPTIND - 1))
+
+	: ${prefix:="--> [$(timestamp)]"}
+	: ${suffix:=""}
+
+	echo "${prefix} $* ${suffix}"
+}
+
 # Highlight piped data
 function highlight
 {
@@ -210,14 +235,14 @@ function log_page
 function tape_status
 {
 	if (( NO_TAPE > 0 )); then
-		echo "--> running without tape"
+		log "running without tape"
 	else
-		echo "--> checking tape status"
+		log "checking tape status"
 		# The ${REMOTE:+foo} syntax returns "foo" if FOO is set,
 		# otherwise nothing.
 		${REMOTE:+$RSH $DUMP_HOST} $MT -f $DUMP_DEVICE status
 		if (( $? > 0 )); then
-			echo "--> NO TAPE: dump device reset to /dev/null"
+			log -w "NO TAPE: dump device reset to /dev/null"
 			NO_TAPE=1
 		fi
 	fi
@@ -227,9 +252,9 @@ function tape_status
 function tape_rewind
 {
 	if (( NO_TAPE > 0 || NO_REWIND > 0 )); then
-		echo "--> skipped tape rewind" 1>&2
+		log "skipped tape rewind" 1>&2
 	else
-		echo "--> rewinding tape" 1>&2
+		log "rewinding tape" 1>&2
 		${REMOTE:+$RSH $DUMP_HOST} $MT -f $DUMP_DEVICE rewind
 	fi
 	return $?
@@ -239,9 +264,9 @@ function tape_rewind
 function tape_eject
 {
 	if (( NO_TAPE > 0 || NO_EJECT > 0 )); then
-		echo "--> skipped tape eject"
+		log "skipped tape eject"
 	else
-		echo "--> ejecting tape"
+		log "ejecting tape"
 		${REMOTE:+$RSH $DUMP_HOST} $MT -f $DUMP_DEVICE offline
 	fi
 	return $?
@@ -256,7 +281,7 @@ function tape_eject
 function tape_write
 {
 	if (( NO_TAPE > 0 )); then
-		echo "--> NO TAPE: piping to /dev/null"
+		log "NO TAPE: piping to /dev/null"
 		$DD $* of=/dev/null
 	else
 		if [[ -n "$REMOTE" ]]; then
@@ -278,7 +303,7 @@ function tape_write
 function tape_read
 {
 	if (( NO_TAPE > 0 )); then
-		echo "--> NO TAPE: aborting"
+		log "NO TAPE: aborting"
 		exit 1
 	else
 		if [[ -n "$REMOTE" ]]; then
@@ -305,7 +330,7 @@ function tape_position
 # Generate a ToC for the pending backup
 function toc_create
 {
-	echo "--> generating table of contents"
+	log "generating table of contents"
 	if [[ -f $EXCLUDE_FILE ]]; then
 		# This 'magic' line joins all the non-comment, non-blank lines (i.e.
 		# the mountpoints) in the exclude file with a '|' character (regular
@@ -315,7 +340,7 @@ function toc_create
 		# excluded.
 		EXCLUDE=$($AWK 'BEGIN {printf "^(";} $0 !~ /#/ && $0 != "" {printf "%s%s", (i++>0)?"|":"", $0;} END {printf ")$";}' $EXCLUDE_FILE)
 	else
-		echo "--> no filesystem excludes: $EXCLUDE_FILE not found"
+		log "no filesystem excludes: $EXCLUDE_FILE not found"
 		# If the exclude file doesn't exist, match nothing.
 		EXCLUDE='^$'
 	fi
@@ -329,7 +354,7 @@ function toc_create
 		< /etc/mnttab
 	done | $PR -tn > $TOC_FILE
 	STATUS=$?
-	echo "--> table of contents:"
+	log "table of contents:"
 	$CAT $TOC_FILE
 	return $STATUS
 }
@@ -337,7 +362,7 @@ function toc_create
 # Write backup ToC to dump device
 function toc_write
 {
-	echo "--> writing table of contents"
+	log "writing table of contents"
 	# Write a timestamp followed by the TOC_FILE to tape_write via a standard
 	# pipe. Written as raw data, this can later be read with a simple dd(1).
 	#
@@ -354,7 +379,7 @@ function toc_read
 {
 	tape_rewind
 	if (( $? > 0 || NO_TAPE > 0 || NO_REWIND > 0 )); then
-		echo "ERROR: accessing tape" 1>&2
+		log "ERROR: accessing tape" 1>&2
 		exit 1
 	fi
 	$DD if=$DUMP_DEVICE
@@ -372,27 +397,27 @@ function script_pipe
 function script_process
 {
 	if (( NO_SCRIPT > 0 )); then
-		echo "--> skipping $1-backup scripts for $2"
+		log "skipping $1-backup scripts for $2"
 		return 0
 	fi
 	if [[ -f "$SCRIPT_FILE" ]]; then
-		echo "--> processing $1-backup scripts for $2 [$(timestamp)]"
+		log "processing $1-backup scripts for $2"
 		$AWK '$1 ~ /^(pre|post)$/' $SCRIPT_FILE \
 		| while read WHEN FS COMMAND; do
 			if [[ "$1" == "$WHEN" && "$2" == "$FS" ]]; then
-				echo "--> executing: ( $COMMAND )"
+				log "executing: ( $COMMAND )"
 				$SHELL -c "$COMMAND" 2>&1 | script_pipe
 			fi
 		done
 	else
-		echo "--> skipping $1-backup scripts: $SCRIPT_FILE not found"
+		log "skipping $1-backup scripts: $SCRIPT_FILE not found"
 	fi
 }
 
 # Mail interested parties
 function mail_users
 {
-	$MAIL -s "Message from $HOSTNAME: backup failed" $MAIL_USERS < $LOG_FILE
+	$MAIL -s "Message from $HOSTNAME: backup issues" $MAIL_USERS < $LOG_FILE
 }
 
 # List existing zfs backup snapshots
@@ -401,13 +426,13 @@ function snap_list_zfs
 	[[ -x $ZFS ]] || return
 	SNAPLIST=$($ZFS list -t snapshot -Ho name | $GREP -Fv 'no datasets available' | $GREP '@backup$')
 	if [[ -n "$SNAPLIST" ]]; then
-		echo "==> WARNING: zfs@backup snapshots exist:"
+		log -sw "WARNING: zfs@backup snapshots exist:"
 		for SNAP in $SNAPLIST; do
 			echo "    $SNAP"
 		done
-		echo "--> manually remove using '$ZFS destroy filesystem@backup'"
+		log "manually remove using '$ZFS destroy filesystem@backup'"
 	else
-		echo "==> no zfs@backup snapshots exist"
+		log -s "no zfs@backup snapshots exist"
 	fi
 }
 
@@ -417,13 +442,13 @@ function snap_list_ufs
 	[[ -x $FSSNAP ]] || return
 	SNAPLIST=$($FSSNAP -i | $AWK '{print $2}')
 	if [[ -n "$SNAPLIST" ]]; then
-		echo "==> WARNING: ufs snapshots exist for the following filesystems:"
+		log -sw "WARNING: ufs snapshots exist for the following filesystems:"
 		for SNAP in $SNAPLIST; do
 			echo "    $SNAP"
 		done
-		echo "--> manually remove using '$FSSNAP -d /filesystem'"
+		log "manually remove using '$FSSNAP -d /filesystem'"
 	else
-		echo "==> no ufs snapshots exist"
+		log -s "no ufs snapshots exist"
 	fi
 }
 
@@ -475,20 +500,20 @@ function snap_create_zfs
 	# otherwise 1.
 	NOSNAP=$(echo $2 | $GREP -Fcx -f <(echo NONE | $CAT - $NOSNAP_FILE | $GREP -v '#' | $GREP -v '^$'))
 	if (( SNAPSHOT_ZFS > 0 && NOSNAP == 0 )); then
-		echo "--> creating zfs snapshot of $2 [$(timestamp)]" 1>&2
+		log "creating zfs snapshot of $2" 1>&2
 		SNAPSHOT=$2/.zfs/snapshot/backup
 		$ZFS snapshot $1@backup
 		if [[ $? -eq 0 && -d $SNAPSHOT ]]; then
-			echo "--> snapshot successfully created [$(timestamp)]" 1>&2
+			log "snapshot successfully created" 1>&2
 			echo $SNAPSHOT
 			HAS_SNAP=1
 		else
-			echo "--> ERROR: snapshot creation failed" 1>&2
-			echo "--> proceeding with non-snap backup" 1>&2
+			log -w "ERROR: snapshot creation failed" 1>&2
+			log "proceeding with non-snap backup" 1>&2
 			echo $2
 		fi
 	else
-		echo "--> skipped creation of zfs snapshot for $2" 1>&2
+		log "skipped creation of zfs snapshot for $2" 1>&2
 		echo $2
 	fi
 	return $HAS_SNAP
@@ -506,25 +531,25 @@ function snap_create_ufs
 	NOSNAP=$(echo $2 | $GREP -Fcx -f <(echo NONE | $CAT - $NOSNAP_FILE | $GREP -v '#' | $GREP -v '^$'))
 	if (( SNAPSHOT_UFS > 0 && NOSNAP == 0 )); then
 		if [[ -d $BACKING_STORE ]]; then
-			echo "--> creating ufs snapshot: $2 [$(timestamp)]" 1>&2
+			log "creating ufs snapshot: $2" 1>&2
 			# The following prints the path to the snap device
 			$FSSNAP -F ufs -o maxsize=$FSSNAP_MAXSIZE,bs=$BACKING_STORE,unlink $2
 			if (( $? > 0 )); then
-				echo "--> ERROR: snapshot creation failed" 1>&2
-				echo "--> check for processes holding locks on the filesystem" 1>&2
-				echo "--> proceeding with non-snap backup" 1>&2
+				log -w "ERROR: snapshot creation failed" 1>&2
+				log "check for processes holding locks on the filesystem" 1>&2
+				log "proceeding with non-snap backup" 1>&2
 				echo $1
 			else
-				echo "--> snapshot successfully created [$(timestamp)]" 1>&2
+				log "snapshot successfully created" 1>&2
 				HAS_SNAP=1
 			fi
 		else
-			echo "--> ERROR: No snapshot backing store - create '$BACKING_STORE'" 1>&2
-			echo "--> skipped creation of ufs snapshot for $2" 1>&2
+			log -w "ERROR: No snapshot backing store - create '$BACKING_STORE'" 1>&2
+			log "skipped creation of ufs snapshot for $2" 1>&2
 			MAIL_LOG=1
 		fi
 	else
-		echo "--> skipped creation of ufs snapshot for $2" 1>&2
+		log "skipped creation of ufs snapshot for $2" 1>&2
 		echo $1
 	fi
 	return $HAS_SNAP
@@ -537,15 +562,15 @@ function snap_create_ufs
 function snap_delete_zfs
 {
 	if ! snap_exists_zfs $1@backup; then
-		echo "--> WARNING: snapshot of $2 has disappeared [$(timestamp)]"
+		log -w "WARNING: snapshot of $2 has disappeared"
 		return 0
 	fi
-	echo "--> deleting zfs snapshot of $2 [$(timestamp)]"
+	log "deleting zfs snapshot of $2"
 	$ZFS destroy $1@backup
 	if (( $? > 0 )); then
-		echo "--> ERROR: snapshot deletion failed [$(timestamp)]"
+		log -w "ERROR: snapshot deletion failed"
 	else
-		echo "--> snapshot successfully deleted [$(timestamp)]"
+		log "snapshot successfully deleted"
 	fi
 }
 
@@ -556,15 +581,15 @@ function snap_delete_zfs
 function snap_delete_ufs
 {
 	if ! snap_exists_ufs $2; then
-		echo "--> WARNING: snapshot of $2 has disappeared [$(timestamp)]"
+		log -w "WARNING: snapshot of $2 has disappeared"
 		return 0
 	fi
-	echo "--> deleting ufs snapshot of $2 [$(timestamp)]"
+	log "deleting ufs snapshot of $2"
 	$FSSNAP -d $2
 	if (( $? > 0 )); then
-		echo "--> ERROR: snapshot deletion failed [$(timestamp)]"
+		log -w "ERROR: snapshot deletion failed"
 	else
-		echo "--> snapshot successfully deleted [$(timestamp)]"
+		log "snapshot successfully deleted"
 	fi
 }
 
@@ -576,18 +601,18 @@ function dump_zfs
 {
 	cd $3
 	if (( $? > 0 )); then
-		echo "==> ERROR: $3 not found, dump of $2 failed [$(timestamp)]"
+		log -sw "ERROR: $3 not found, dump of $2 failed"
 		return 1
 	fi
-	echo "==> BEGIN: dump of $2 via pax [$(timestamp)]"
-	echo "--> running pax..."
+	log -s "BEGIN: dump of $2 via pax"
+	log "running pax..."
 	$FIND . -xdev '!' '(' -type d -o -type s ')' -print \
 	| $PAX -w -pe -x $PAX_FORMAT -X -s '#^./##' -f >(tape_write obs=63k)
 	STATUS=$?
 	if (( STATUS > 0 )); then
-		echo "==> ERROR: dump of $2 failed [$(timestamp)]"
+		log -sw "ERROR: dump of $2 failed"
 	else
-		echo "==> COMPLETE: dump of $2 successful [$(timestamp)]"
+		log -s "COMPLETE: dump of $2 successful"
 	fi
 	cd - >/dev/null
 	# Give the >() pipe time to close
@@ -601,14 +626,14 @@ function dump_zfs
 # $3 = SNAPSHOT (device)
 function dump_ufs
 {
-	echo "==> BEGIN: dump of $2 via ufsdump [$(timestamp)]"
-	echo "--> running ufsdump..."
+	log -s "BEGIN: dump of $2 via ufsdump"
+	log "running ufsdump..."
 	$UFSDUMP 0cf >(tape_write obs=63k) $SNAPSHOT
 	STATUS=$?
 	if (( STATUS > 0 )); then
-		echo "==> ERROR: dump of $2 failed [$(timestamp)]"
+		log -sw "ERROR: dump of $2 failed"
 	else
-		echo "==> COMPLETE: dump of $2 successful [$(timestamp)]"
+		log -s "COMPLETE: dump of $2 successful"
 	fi
 	# Give the >() pipe time to close
 	$SLEEP 5
@@ -621,7 +646,7 @@ function dump_ufs
 # $3 = MOUNTPOINT
 function backup_fs
 {
-	echo "==> Backing up $HOSTNAME:$3 to ${REMOTE:+$DUMP_HOST:}$DUMP_DEVICE [$(datestamp)]"
+	log -h "Backing up $HOSTNAME:$3 to ${REMOTE:+$DUMP_HOST:}$DUMP_DEVICE"
 	script_process pre $3
 	SNAPSHOT=$(snap_create_$1 $2 $3)
 	# $? > 0 implies snapshot was successful
@@ -641,7 +666,7 @@ function backup_fs
 function backup_all
 {
 	separator
-	echo "===> Backup commenced [$(datestamp)]"
+	log -h "Backup commenced"
 	separator
 	tape_status
 	tape_rewind
@@ -662,7 +687,7 @@ function backup_all
 	separator
 	snap_list
 	separator
-	echo "===> Backup completed [$(datestamp)]"
+	log -h "Backup completed"
 	separator
 }
 
@@ -671,8 +696,8 @@ function backup_all
 function restore
 {
 	ROOT=$1
-	echo "==> initiating restore ${ROOT:+from $ROOT}"
-	echo "--> WARNING: restore will be to the current directory ($(pwd))!"
+	log -s "initiating restore ${ROOT:+from $ROOT}"
+	log "WARNING: restore will be to the current directory ($(pwd))!"
 	while [[ -z "$ROOT" ]]; do
 		read ROOT?"Enter source filesystem mountpoint: "
 	done
@@ -681,7 +706,7 @@ function restore
 	toc_read > $TOC_TEMP
 	tail +1 $TOC_TEMP | while read NUM FSTYPE DEVICE MOUNTPOINT; do
 		if [[ "$MOUNTPOINT" = "$ROOT" ]]; then
-			echo "--> matched entry in table of contents: $NUM $FSTYPE $DEVICE $MOUNTPOINT"
+			log "matched entry in table of contents: $NUM $FSTYPE $DEVICE $MOUNTPOINT"
 			break
 		fi
 	done
@@ -691,17 +716,17 @@ function restore
 		case $FSTYPE in
 		zfs)
 			tape_position $NUM
-			echo "--> pax does not support interaction"
+			log "pax does not support interaction"
 			read FILE?"Enter file pattern(s) to restore (fnmatch style): "
 			# pax(1) expects to read from a file, so give it a named pipe.
 			$PAX -r -pe -v -f <(tape_read ibs=63k) $FILE
 			;;
 		ufs)
 			if [[ -n "$REMOTE" ]]; then
-				echo "--> ERROR: cannot use remote device ($DUMP_HOST:$DUMP_DEVICE) for ufs restore"
+				log "ERROR: cannot use remote device ($DUMP_HOST:$DUMP_DEVICE) for ufs restore"
 			else
 				tape_position $NUM
-				echo "--> initiating interactive restore"
+				log "initiating interactive restore"
 				# ufsrestore(1) doesn't happily read from a named pipe, so for
 				# now we support local restores only, and it reads directly
 				# from DUMP_DEVICE!
@@ -709,11 +734,11 @@ function restore
 			fi
 			;;
 		*)
-			echo "--> ERROR: Unrecognized filesystem type: $FSTYPE"
+			log "ERROR: Unrecognized filesystem type: $FSTYPE"
 			;;
 		esac
 	else
-		echo "--> ERROR: no match in table of contents"
+		log "ERROR: no match in table of contents"
 	fi
 }
 
