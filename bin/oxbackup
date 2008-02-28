@@ -113,6 +113,13 @@ COLOUR_cyan="[1;36m"
 COLOUR_lgrey="[0;37m"
 COLOUR_white="[1;37m"
 
+export ERRORS=0
+ERROR_CONFIG=1
+ERROR_TAPE=2
+ERROR_SNAPSHOT=4
+ERROR_PATH=8
+ERROR_BACKUP=16
+
 
 # Set remote command defaults
 AWK=/usr/xpg4/bin/awk
@@ -178,9 +185,8 @@ function log
 			suffix="[$(datestamp)]"
 			;;
 		s)	prefix="==> [$(timestamp)]"
-			suffix=""
 			;;
-		w)	MAIL_LOG=1
+		w)	prefix="++> [$(timestamp)]"
 			;;
 		esac
 	done
@@ -218,6 +224,7 @@ function log_rotate
 {
 	$LOGADM -C 28 -p now -z 7 -t '$file.$N' "{$LOG_FILE,$TOC_FILE}"
 	if (( $? > 0 )); then
+		(( ERRORS |= ERROR_CONFIG ))
 		echo "==> ERROR: rotating logfile ($LOG_FILE)"
 		usage 1
 	fi
@@ -246,8 +253,9 @@ function tape_status
 		# otherwise nothing.
 		${REMOTE:+$RSH $DUMP_HOST} $MT -f $DUMP_DEVICE status
 		if (( $? > 0 )); then
-			log -w "NO TAPE: dump device reset to /dev/null"
+			(( ERRORS |= ERROR_TAPE ))
 			NO_TAPE=1
+			log -w "NO TAPE: dump device reset to /dev/null"
 		fi
 	fi
 }
@@ -418,10 +426,32 @@ function script_process
 	fi
 }
 
+function mail_subject
+{
+	if (( ERRORS == 0 ))
+	then
+		echo "backup completed without error"
+	else
+		if (( ERRORS & ERROR_TAPE ))
+			$PRINTF "failed backup - tape error"
+		else
+			$PRINTF "partial backup"
+		fi
+		(( ERRORS & ERROR_CONFIG )) \
+			&& $PRINTF ", misconfigured"
+		(( ERRORS & ERROR_SNAPSHOT )) \
+			&& $PRINTF ", snapshot error"
+		(( ERRORS & ERROR_PATH )) \
+			&& $PRINTF ", path error"
+		(( ERRORS & ERROR_BACKUP )) \
+			&& $PRINTF ", dump error"
+	fi
+}
+
 # Mail interested parties
 function mail_users
 {
-	$MAIL -s "Message from $HOSTNAME: backup issues" $MAIL_USERS < $LOG_FILE
+	$MAIL -s "$HOSTNAME: $(mail_subject)" $MAIL_USERS < $LOG_FILE
 }
 
 # List existing zfs backup snapshots
@@ -430,6 +460,7 @@ function snap_list_zfs
 	[[ -x $ZFS ]] || return
 	SNAPLIST=$($ZFS list -t snapshot -Ho name | $GREP -Fv 'no datasets available' | $GREP '@backup$')
 	if [[ -n "$SNAPLIST" ]]; then
+		(( ERRORS |= ERROR_SNAPSHOT ))
 		log -sw "WARNING: zfs@backup snapshots exist:"
 		for SNAP in $SNAPLIST; do
 			echo "    $SNAP"
@@ -446,6 +477,7 @@ function snap_list_ufs
 	[[ -x $FSSNAP ]] || return
 	SNAPLIST=$($FSSNAP -i | $AWK '{print $2}')
 	if [[ -n "$SNAPLIST" ]]; then
+		(( ERRORS |= ERROR_SNAPSHOT ))
 		log -sw "WARNING: ufs snapshots exist for the following filesystems:"
 		for SNAP in $SNAPLIST; do
 			echo "    $SNAP"
@@ -539,6 +571,7 @@ function snap_create_ufs
 			# The following prints the path to the snap device
 			$FSSNAP -F ufs -o maxsize=$FSSNAP_MAXSIZE,bs=$BACKING_STORE,unlink $2
 			if (( $? > 0 )); then
+				(( ERRORS |= ERROR_SNAPSHOT ))
 				log -w "ERROR: snapshot creation failed" 1>&2
 				log "check for processes holding locks on the filesystem" 1>&2
 				log "proceeding with non-snap backup" 1>&2
@@ -548,9 +581,9 @@ function snap_create_ufs
 				HAS_SNAP=1
 			fi
 		else
+			(( ERRORS |= ERROR_CONFIG ))
 			log -w "ERROR: No snapshot backing store - create '$BACKING_STORE'" 1>&2
 			log "skipped creation of ufs snapshot for $2" 1>&2
-			MAIL_LOG=1
 		fi
 	else
 		log "skipped creation of ufs snapshot for $2" 1>&2
@@ -566,12 +599,14 @@ function snap_create_ufs
 function snap_delete_zfs
 {
 	if ! snap_exists_zfs $1@backup; then
+		(( ERRORS |= ERROR_SNAPSHOT ))
 		log -w "WARNING: snapshot of $2 has disappeared"
 		return 0
 	fi
 	log "deleting zfs snapshot of $2"
 	$ZFS destroy $1@backup
 	if (( $? > 0 )); then
+		(( ERRORS |= ERROR_SNAPSHOT ))
 		log -w "ERROR: snapshot deletion failed"
 	else
 		log "snapshot successfully deleted"
@@ -585,12 +620,14 @@ function snap_delete_zfs
 function snap_delete_ufs
 {
 	if ! snap_exists_ufs $2; then
+		(( ERRORS |= ERROR_SNAPSHOT ))
 		log -w "WARNING: snapshot of $2 has disappeared"
 		return 0
 	fi
 	log "deleting ufs snapshot of $2"
 	$FSSNAP -d $2
 	if (( $? > 0 )); then
+		(( ERRORS |= ERROR_SNAPSHOT ))
 		log -w "ERROR: snapshot deletion failed"
 	else
 		log "snapshot successfully deleted"
@@ -605,6 +642,7 @@ function dump_zfs
 {
 	cd $3
 	if (( $? > 0 )); then
+		(( ERRORS |= ERROR_PATH ))
 		log -sw "ERROR: $3 not found, dump of $2 failed"
 		return 1
 	fi
@@ -614,6 +652,7 @@ function dump_zfs
 	| $PAX -w -pe -x $PAX_FORMAT -X -s '#^./##' -f >(tape_write obs=63k)
 	STATUS=$?
 	if (( STATUS > 0 )); then
+		(( ERRORS |= ERROR_BACKUP ))
 		log -sw "ERROR: dump of $2 failed"
 	else
 		log -s "COMPLETE: dump of $2 successful"
@@ -635,6 +674,7 @@ function dump_ufs
 	$UFSDUMP 0cf >(tape_write obs=63k) $SNAPSHOT
 	STATUS=$?
 	if (( STATUS > 0 )); then
+		(( ERRORS |= ERROR_BACKUP ))
 		log -sw "ERROR: dump of $2 failed"
 	else
 		log -s "COMPLETE: dump of $2 successful"
@@ -663,7 +703,14 @@ function backup_fs
 		# ensure post scripts get run
 		trap "script_process post $3" ERR INT EXIT
 	fi
-	dump_$1 $2 $3 $SNAPSHOT
+
+	# Skip dump_* if there has been a tape error
+	if (( ERRORS & ERROR_TAPE ))
+	then
+		return 1
+	else
+		dump_$1 $2 $3 $SNAPSHOT
+	fi
 }
 
 # Backup all local filesystems
@@ -682,7 +729,7 @@ function backup_all
 	while read NUM FSTYPE DEVICE MOUNTPOINT; do
 		separator
 		backup_fs $FSTYPE $DEVICE $MOUNTPOINT
-		(( $? > 0 )) && MAIL_LOG=1
+		(( $? > 0 )) && (( ERRORS |= ERROR_BACKUP ))
 	done < $TOC_FILE
 	separator
 	script_process post ALL
@@ -754,7 +801,7 @@ backup)
 	log_pipe |&
 	exec >&p
 	backup_all 2>&1
-	(( MAIL_LOG > 0 )) && mail_users || exit 0
+	(( ERRORS > 0 || MAIL_LOG > 0 )) && mail_users || exit 0
 	;;
 restore)
 	restore $2
