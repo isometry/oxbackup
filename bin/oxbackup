@@ -723,7 +723,7 @@ function backup_fs
 function backup_all
 {
 	separator
-	log -h "Backup commenced"
+	log -h "Backup of $HOSTNAME to ${REMOTE:+$DUMP_HOST:}$DUMP_DEVICE commenced"
 	separator
 	tape_status
 	tape_rewind
@@ -744,7 +744,7 @@ function backup_all
 	separator
 	snap_list
 	separator
-	log -h "Backup completed"
+	log -h "Backup of $HOSTNAME to ${REMOTE:+$DUMP_HOST:}$DUMP_DEVICE completed"
 	separator
 }
 
