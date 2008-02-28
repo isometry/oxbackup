@@ -218,6 +218,7 @@ function highlight
 			-e "s/^-*$/${COLOUR_dgrey}&${COLOUR_normal}/" \
 			-e "s/^=*>.*/${COLOUR_white}&${COLOUR_normal}/" \
 			-e "s/^-->.*/${COLOUR_white}&${COLOUR_normal}/" \
+			-e "s/^++>.*/${COLOUR_red}&${COLOUR_normal}/" \
 			-e "s/^#.*/${COLOUR_dgrey}&${COLOUR_normal}/"
 	fi
 }
