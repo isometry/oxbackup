@@ -712,7 +712,7 @@ function backup_fs
 	# Skip dump_* if there has been a tape error
 	if (( ERRORS & ERROR_TAPE ))
 	then
-		log -sw "WARNING: skipping backup due to tape error"
+		log -sw "WARNING: skipped dump due to tape error"
 		return 1
 	else
 		dump_$1 $2 $3 $SNAPSHOT
