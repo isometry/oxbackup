@@ -5,7 +5,7 @@
 # Backup local filesystems to a local or remote device.
 #
 
-export PATH=/usr/xpg4/bin:/usr/bin
+export PATH=/usr/xpg4/bin:/usr/sbin:/usr/bin
 export SHELL=/usr/xpg4/bin/sh
 
 BASE=$(cd $(dirname $0)/..; pwd)
@@ -14,7 +14,6 @@ TOC_FILE=$BASE/log/toc
 EXCLUDE_FILE=$BASE/etc/exclude
 SCRIPT_FILE=$BASE/etc/scripts
 NOSNAP_FILE=$BASE/etc/nosnap
-MAIL_USERS=
 SCRIPT_BASE=$BASE/scripts
 HOSTNAME=$(hostname)
 
@@ -29,6 +28,7 @@ function usage
 		   -n                       # ignore pre/post scripts
 		   -e                       # don't eject the tape
 		   -v                       # send script output to terminal
+		   -u email@address			# notify email@address of errors
 		Actions:
 		   help                     # display this message (default)
 		   backup                   # execute backup
@@ -43,7 +43,7 @@ function usage
 	exit $1
 }
 
-while getopts b:cef:mnr:stvh c
+while getopts b:cef:mnr:stu:vh c
 do
 	case $c in
 	b)	BACKING_STORE=$OPTARG
@@ -64,6 +64,8 @@ do
 		;;
 	t)	NO_TAPE=1
 		DUMP_DEVICE=/dev/null
+		;;
+	u)	MAIL_USERS=$OPTARG
 		;;
 	v)	OUTPUT=/dev/tty
 		;;
@@ -209,6 +211,7 @@ function highlight
 			-e "s/NEEDS ATTENTION.*/${COLOUR_dred}&${COLOUR_normal}/" \
 			-e "s/TIP:.*/${COLOUR_dred}&${COLOUR_normal}/" \
 			-e "s/ERROR.*/${COLOUR_dred}&${COLOUR_normal}/" \
+			-e "s/WARNING.*/${COLOUR_dred}&${COLOUR_normal}/" \
 			-e "s/NO TAPE.*/${COLOUR_dred}&${COLOUR_normal}/" \
 			-e "s/BEGIN/${COLOUR_dgreen}&${COLOUR_normal}/" \
 			-e "s/COMPLETE/${COLOUR_dgreen}&${COLOUR_normal}/" \
@@ -255,7 +258,7 @@ function tape_status
 		if (( $? > 0 )); then
 			(( ERRORS |= ERROR_TAPE ))
 			NO_TAPE=1
-			log -w "NO TAPE: dump device reset to /dev/null"
+			log -w "ERROR: tape missing"
 		fi
 	fi
 }
@@ -433,6 +436,7 @@ function mail_subject
 		echo "backup completed without error"
 	else
 		if (( ERRORS & ERROR_TAPE ))
+		then
 			$PRINTF "failed backup - tape error"
 		else
 			$PRINTF "partial backup"
@@ -707,6 +711,7 @@ function backup_fs
 	# Skip dump_* if there has been a tape error
 	if (( ERRORS & ERROR_TAPE ))
 	then
+		log -sw "WARNING: skipping backup due to tape error"
 		return 1
 	else
 		dump_$1 $2 $3 $SNAPSHOT
