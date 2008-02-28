@@ -2,11 +2,11 @@
 # RB 2007/02/16
 # $Id$
 #
-# Backup local filesystems to local or remote device.
+# Backup local filesystems to a local or remote device.
 #
 
-PATH=/usr/sbin:/usr/xpg4/bin:/usr/bin:$PATH
-SHELL=/usr/xpg4/bin/sh
+export PATH=/usr/xpg4/bin:/usr/bin
+export SHELL=/usr/xpg4/bin/sh
 
 BASE=$(cd $(dirname $0)/..; pwd)
 LOG_FILE=$BASE/log/backup.log
@@ -20,23 +20,26 @@ HOSTNAME=$(hostname)
 
 function usage
 {
-	echo "USAGE: $0 [options] [action]"
-	echo "Options:"
-	echo "   -f [[user@]host:]device  # backup device (default: /dev/rmt/0cn)"
-	echo "   -b path                  # backing-store for ufs snapshots (default: /snap)"
-	echo "   -t                       # dry run without tape"
-	echo "   -n                       # ignore pre/post scripts"
-	echo "   -e                       # don't eject the tape"
-	echo "   -v                       # send script output to terminal"
-	echo "Actions:"
-	echo "   help                     # display this message (default)"
-	echo " * backup                   # execute backup"
-	echo " * check                    # view backup log"
-	echo " * snaplist                 # list existing filesystem snapshots"
-	echo " * restore [/mountpoint]    # execute restore"
-	echo " * toc                      # display table of contents"
-	echo "   position                 # position tape"
-	echo "   rotate                   # force rotation of backup log"
+	cat <<-EOF
+		USAGE: $0 [options] [action]
+		Options:
+		   -f [[user@]host:]device  # backup device (default: /dev/rmt/0cn)
+		   -b path                  # backing-store for ufs snapshots (default: /snap)
+		   -t                       # dry run without tape
+		   -n                       # ignore pre/post scripts
+		   -e                       # don't eject the tape
+		   -v                       # send script output to terminal
+		Actions:
+		   help                     # display this message (default)
+		   backup                   # execute backup
+		   check                    # view backup log
+		   snaplist                 # list existing filesystem snapshots
+		   restore [/mountpoint]    # execute restore
+		   toc                      # display table of contents
+		   position                 # position tape
+		   rotate                   # force rotation of backup log
+		   update					# pull latest version from repository
+	EOF
 	exit $1
 }
 
@@ -135,6 +138,7 @@ PRINTF=/usr/bin/printf
 RM=/usr/xpg4/bin/rm
 SED=/usr/xpg4/bin/sed
 SLEEP=/usr/bin/sleep
+SVN=/sysadmin/bin/svn
 TEE=/usr/bin/tee
 UFSDUMP=/usr/sbin/ufsdump
 UFSRESTORE=/usr/sbin/ufsrestore
@@ -769,6 +773,9 @@ position)
 	;;
 rotate)
 	log_rotate
+	;;
+update)
+	$SVN update $BASE
 	;;
 help)
 	usage 0
