@@ -4,8 +4,7 @@
 # Choose and execute platform dependent binary.
 #
 
-THIS=$_
 ARCH=$(/sbin/uname -p)
 
-exec ${THIS}-${ARCH} $@
+exec $0-${ARCH} $@
 
