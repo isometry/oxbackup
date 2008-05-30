@@ -24,6 +24,7 @@ function usage
 		Options:
 		   -f [[user@]host:]device  # backup device (default: /dev/rmt/0cn)
 		   -b path                  # backing-store for ufs snapshots (default: /snap)
+		   -B blocksize             # blocksize for mbuffer (default: 1024k)
 		   -t                       # dry run without tape
 		   -n                       # ignore pre/post scripts
 		   -e                       # don't eject the tape
@@ -43,10 +44,12 @@ function usage
 	exit $1
 }
 
-while getopts b:cef:mnr:stu:vh c
+while getopts b:B:cef:mnr:stu:vh c
 do
 	case $c in
 	b)	BACKING_STORE=$OPTARG
+		;;
+	B)	BLOCKSIZE=$OPTARG
 		;;
 	c)	NO_COLOUR=1
 		;;
@@ -79,6 +82,7 @@ shift $((OPTIND - 1))
 
 # Set defaults
 : ${ACTION:=${1:-help}}
+: ${BLOCKSIZE:=1024k}
 : ${DUMP_DEVICE:=/dev/rmt/0cn}
 : ${RSH:=rsh}
 : ${OUTPUT:=/dev/null}
@@ -139,6 +143,7 @@ else
 	LOGADM=$BASE/bin/logadm8
 fi
 MAIL=/usr/bin/mailx
+MBUFFER=$BASE/bin/mbuffer
 MKTEMP=/usr/bin/mktemp
 MT=/usr/bin/mt
 PAX=/usr/bin/pax
@@ -147,6 +152,7 @@ PRINTF=/usr/bin/printf
 RM=/usr/xpg4/bin/rm
 SED=/usr/xpg4/bin/sed
 SLEEP=/usr/bin/sleep
+STAR=$BASE/bin/star
 SVN=/sysadmin/bin/svn
 TEE=/usr/bin/tee
 UFSDUMP=/usr/sbin/ufsdump
@@ -259,6 +265,7 @@ function tape_status
 		if (( $? > 0 )); then
 			(( ERRORS |= ERROR_TAPE ))
 			NO_TAPE=1
+			DUMP_DEVICE=/dev/null
 			log -w "ERROR: tape missing"
 		fi
 	fi
@@ -292,30 +299,47 @@ function tape_eject
 # $* = dd directives
 #
 # For dumper programs which expect to write to a file or device rather than
-# into a pipe, this can be used to set up a named pipe using the >(tape_write)
+# into a pipe, this can be used to set up a named pipe using the >(tape_write_dd)
 # syntax.
+function tape_write_dd
+{
+	if (( NO_TAPE > 0 )); then
+		log "NO TAPE: piping to /dev/null"
+	fi
+
+	if [[ -n "$REMOTE" ]]; then
+		# Establish a tunnel to dd(1) running on the remote machine
+		$RSH $DUMP_HOST "$DD $* of=$DUMP_DEVICE"
+	else
+		# Run dd(1) locally, piping from stdin to $DUMP_DEVICE
+		$DD $* of=$DUMP_DEVICE
+	fi
+}
+
+# Write data to tape using mbuffer, potentially on remote host
+#
+# This should be used only as the target of a pipe; it is apparently
+# NOT compatible with # the >(command) syntax!.
 function tape_write
 {
 	if (( NO_TAPE > 0 )); then
 		log "NO TAPE: piping to /dev/null"
-		$DD $* of=/dev/null
+	fi
+
+	if [[ -n "$REMOTE" ]]; then
+		# Establish a tunnel to dd(1) running on the remote machine
+		$RSH $DUMP_HOST "$MBUFFER -q -s $BLOCKSIZE -o $DUMP_DEVICE"
 	else
-		if [[ -n "$REMOTE" ]]; then
-			# Establish a tunnel to dd(1) running on the remote machine
-			$RSH $DUMP_HOST "$DD $* of=$DUMP_DEVICE"
-		else
-			# Run dd(1) locally, piping from stdin to $DUMP_DEVICE
-			$DD $* of=$DUMP_DEVICE
-		fi
+		# Run mbuffer locally, piping from stdin to $DUMP_DEVICE
+		$MBUFFER -q -s $BLOCKSIZE -o $DUMP_DEVICE
 	fi
 }
 
-# Read data from tape using dd, potentially on remote host
-# $* = dd directives
+# Read data from tape using mbuffer, potentially on remote host
 #
 # For restore programs which expect to read from a file or device rather than
 # from a pipe, this can be used to set up a named pipe using the <(tape_read)
-# syntax.
+# syntax. <(command) syntax UNTESTED with mbuffer!
 function tape_read
 {
 	if (( NO_TAPE > 0 )); then
@@ -324,10 +348,10 @@ function tape_read
 	else
 		if [[ -n "$REMOTE" ]]; then
 			# Establish a tunnel to dd(1) running on the remote machine
-			$RSH $DUMP_HOST "$DD $* if=$DUMP_DEVICE"
+			$RSH $DUMP_HOST "$MBUFFER -q -s $BLOCKSIZE -i $DUMP_DEVICE"
 		else
 			# Run dd(1) locally, piping from $DUMP_DEVICE to stdout
-			$DD $* if=$DUMP_DEVICE
+			$MBUFFER -q -s $BLOCKSIZE -i $DUMP_DEVICE
 		fi
 	fi
 }
@@ -379,14 +403,14 @@ function toc_create
 function toc_write
 {
 	log "writing table of contents"
-	# Write a timestamp followed by the TOC_FILE to tape_write via a standard
+	# Write a timestamp followed by the TOC_FILE to tape_write_dd via a standard
 	# pipe. Written as raw data, this can later be read with a simple dd(1).
 	#
 	# printf(1) is used, because under Solaris9/x86 the first line written to
 	# the tape is interpreted "specially", and the write fails if it contains a
 	# letter followed by a symbol (e.g. 'lr1:'), so we insert a leading blank
 	# line as a workaround.
-	$PRINTF "\nBackup of $HOSTNAME [$(datestamp)]\n" | $CAT - $TOC_FILE | tape_write
+	$PRINTF "\nBackup of $HOSTNAME [$(datestamp)]\n" | $CAT - $TOC_FILE | tape_write_dd
 	return $?
 }
 
@@ -652,9 +676,8 @@ function dump_zfs
 		return 1
 	fi
 	log -s "BEGIN: dump of $2 via pax"
-	log "running pax..."
-	$FIND . -xdev '!' '(' -type d -o -type s ')' -print \
-	| $PAX -w -pe -x $PAX_FORMAT -X -s '#^./##' -f >(tape_write obs=63k)
+	log "running star..."
+	$STAR -cp -xdev H=exustar -dump -s "#^\./##" -find . '!' -type s | tape_write
 	STATUS=$?
 	if (( STATUS > 0 )); then
 		(( ERRORS |= ERROR_BACKUP ))
@@ -676,7 +699,7 @@ function dump_ufs
 {
 	log -s "BEGIN: dump of $2 via ufsdump"
 	log "running ufsdump..."
-	$UFSDUMP 0cf >(tape_write obs=63k) $SNAPSHOT
+	$UFSDUMP 0cf >(tape_write_dd obs=63k) $SNAPSHOT
 	STATUS=$?
 	if (( STATUS > 0 )); then
 		(( ERRORS |= ERROR_BACKUP ))
@@ -775,8 +798,7 @@ function restore
 			tape_position $NUM
 			log "pax does not support interaction"
 			read FILE?"Enter file pattern(s) to restore (fnmatch style): "
-			# pax(1) expects to read from a file, so give it a named pipe.
-			$PAX -r -pe -v -f <(tape_read ibs=63k) $FILE
+			tape_read | $PAX -r -pe -v $FILE
 			;;
 		ufs)
 			if [[ -n "$REMOTE" ]]; then
