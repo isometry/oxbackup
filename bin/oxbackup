@@ -677,7 +677,8 @@ function dump_zfs
 	fi
 	log -s "BEGIN: dump of $2 via pax"
 	log "running star..."
-	$STAR -cp -xdev H=exustar -dump -s "#^\./##" -find . '!' -type s | tape_write
+	$STAR -cp artype=exustar -dump -xdev -no-statistics -s "#^\./##" -find . '!' -type s \
+	| tape_write
 	STATUS=$?
 	if (( STATUS > 0 )); then
 		(( ERRORS |= ERROR_BACKUP ))
@@ -686,8 +687,6 @@ function dump_zfs
 		log -s "COMPLETE: dump of $2 successful"
 	fi
 	cd - >/dev/null
-	# Give the >() pipe time to close
-	$SLEEP 5
 	return $STATUS
 }
 
