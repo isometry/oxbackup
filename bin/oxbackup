@@ -411,7 +411,7 @@ function toc_write
 	# the tape is interpreted "specially", and the write fails if it contains a
 	# letter followed by a symbol (e.g. 'lr1:'), so we insert a leading blank
 	# line as a workaround.
-	$PRINTF "\nBackup of $HOSTNAME [$(datestamp)]\n" | $CAT - $TOC_FILE | tape_write_dd bs=512
+	$PRINTF "Backup of $HOSTNAME [$(datestamp)]\n" | $CAT - $TOC_FILE | tape_write_dd bs=512
 	if (( $? > 0 )); then
 		(( ERRORS |= ERROR_TOC ))
 		log -w "ERROR: writing toc" 1>&2
