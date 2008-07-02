@@ -122,9 +122,10 @@ COLOUR_white="[1;37m"
 export ERRORS=0
 ERROR_CONFIG=1
 ERROR_TAPE=2
-ERROR_SNAPSHOT=4
-ERROR_PATH=8
-ERROR_BACKUP=16
+ERROR_TOC=4
+ERROR_SNAPSHOT=8
+ERROR_PATH=16
+ERROR_BACKUP=32
 
 
 # Set remote command defaults
@@ -410,8 +411,11 @@ function toc_write
 	# the tape is interpreted "specially", and the write fails if it contains a
 	# letter followed by a symbol (e.g. 'lr1:'), so we insert a leading blank
 	# line as a workaround.
-	$PRINTF "\nBackup of $HOSTNAME [$(datestamp)]\n" | $CAT - $TOC_FILE | tape_write_dd
-	return $?
+	$PRINTF "\nBackup of $HOSTNAME [$(datestamp)]\n" | $CAT - $TOC_FILE | tape_write_dd bs=512
+	if (( $? > 0 )); then
+		(( ERRORS |= ERROR_TOC ))
+		log -w "ERROR: writing toc" 1>&2
+	fi
 }
 
 # Retrieve and display the ToC from dump device
@@ -419,7 +423,7 @@ function toc_read
 {
 	tape_rewind
 	if (( $? > 0 || NO_TAPE > 0 || NO_REWIND > 0 )); then
-		log "ERROR: accessing tape" 1>&2
+		log -w "ERROR: accessing tape" 1>&2
 		exit 1
 	fi
 	$DD if=$DUMP_DEVICE
@@ -466,6 +470,8 @@ function mail_subject
 		else
 			$PRINTF "partial backup"
 		fi
+		(( ERRORS & ERROR_TOC )) \
+			&& $PRINTF ", toc error"
 		(( ERRORS & ERROR_CONFIG )) \
 			&& $PRINTF ", misconfigured"
 		(( ERRORS & ERROR_SNAPSHOT )) \
@@ -490,7 +496,7 @@ function snap_list_zfs
 	SNAPLIST=$($ZFS list -t snapshot -Ho name | $GREP -Fv 'no datasets available' | $GREP '@backup$')
 	if [[ -n "$SNAPLIST" ]]; then
 		(( ERRORS |= ERROR_SNAPSHOT ))
-		log -sw "WARNING: zfs@backup snapshots exist:"
+		log -w "WARNING: zfs@backup snapshots exist:"
 		for SNAP in $SNAPLIST; do
 			echo "    $SNAP"
 		done
@@ -507,7 +513,7 @@ function snap_list_ufs
 	SNAPLIST=$($FSSNAP -i | $AWK '{print $2}')
 	if [[ -n "$SNAPLIST" ]]; then
 		(( ERRORS |= ERROR_SNAPSHOT ))
-		log -sw "WARNING: ufs snapshots exist for the following filesystems:"
+		log -w "WARNING: ufs snapshots exist for the following filesystems:"
 		for SNAP in $SNAPLIST; do
 			echo "    $SNAP"
 		done
@@ -672,7 +678,7 @@ function dump_zfs
 	cd $3
 	if (( $? > 0 )); then
 		(( ERRORS |= ERROR_PATH ))
-		log -sw "ERROR: $3 not found, dump of $2 failed"
+		log -w "ERROR: $3 not found, dump of $2 failed"
 		return 1
 	fi
 	log -s "BEGIN: dump of $2 via pax"
@@ -682,7 +688,7 @@ function dump_zfs
 	STATUS=$?
 	if (( STATUS > 0 )); then
 		(( ERRORS |= ERROR_BACKUP ))
-		log -sw "ERROR: dump of $2 failed"
+		log -w "ERROR: dump of $2 failed"
 	else
 		log -s "COMPLETE: dump of $2 successful"
 	fi
@@ -702,7 +708,7 @@ function dump_ufs
 	STATUS=$?
 	if (( STATUS > 0 )); then
 		(( ERRORS |= ERROR_BACKUP ))
-		log -sw "ERROR: dump of $2 failed"
+		log -w "ERROR: dump of $2 failed"
 	else
 		log -s "COMPLETE: dump of $2 successful"
 	fi
@@ -734,7 +740,7 @@ function backup_fs
 	# Skip dump_* if there has been a tape error
 	if (( ERRORS & ERROR_TAPE ))
 	then
-		log -sw "WARNING: skipped dump due to tape error"
+		log -w "WARNING: skipped dump due to tape error"
 		return 1
 	else
 		dump_$1 $2 $3 $SNAPSHOT
