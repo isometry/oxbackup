@@ -92,7 +92,7 @@ shift $((OPTIND - 1))
 : ${NO_SCRIPT:=0}
 : ${NO_COLOUR:=0}
 : ${FSTYPES:=ufs zfs}		# filesystem types that we wish to backup
-: ${PAX_FORMAT:=xustar}
+: ${TAR_FORMAT:=exustar}
 : ${SNAPSHOT_ZFS:=1}		# should zfs filesystems be snapshot?
 : ${SNAPSHOT_UFS:=1}		# should ufs filesystems be snapshot?
 : ${FSSNAP_MAXSIZE:=512m}	# maximum size for the ufs snapshot backing store
@@ -406,12 +406,7 @@ function toc_write
 	log "writing table of contents"
 	# Write a timestamp followed by the TOC_FILE to tape_write_dd via a standard
 	# pipe. Written as raw data, this can later be read with a simple dd(1).
-	#
-	# printf(1) is used, because under Solaris9/x86 the first line written to
-	# the tape is interpreted "specially", and the write fails if it contains a
-	# letter followed by a symbol (e.g. 'lr1:'), so we insert a leading blank
-	# line as a workaround.
-	$PRINTF "Backup of $HOSTNAME [$(datestamp)]\n" | $CAT - $TOC_FILE | tape_write_dd bs=512
+	echo "Backup of $HOSTNAME [$(datestamp)]" | $CAT - $TOC_FILE | tape_write_dd bs=512
 	if (( $? > 0 )); then
 		(( ERRORS |= ERROR_TOC ))
 		log -w "ERROR: writing toc" 1>&2
@@ -669,7 +664,7 @@ function snap_delete_ufs
 	fi
 }
 
-# Dump a zfs filesystem (snapshot) via pax
+# Dump a zfs filesystem (snapshot) via star
 # $1 = FILESYSTEM
 # $2 = MOUNTPOINT
 # $3 = SNAPSHOT (mountpoint)
@@ -681,9 +676,9 @@ function dump_zfs
 		log -w "ERROR: $3 not found, dump of $2 failed"
 		return 1
 	fi
-	log -s "BEGIN: dump of $2 via pax"
+	log -s "BEGIN: dump of $2 via star"
 	log "running star..."
-	$STAR -cp artype=exustar -dump -xdev -no-statistics -s "#^\./##" -find . '!' -type s \
+	$STAR -cp artype=${TAR_FORMAT} -dump -xdev -no-statistics -s "#^\./##" -find . '!' -type s \
 	| tape_write
 	STATUS=$?
 	if (( STATUS > 0 )); then
