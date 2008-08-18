@@ -614,6 +614,7 @@ function snap_create_ufs
 			(( ERRORS |= ERROR_CONFIG ))
 			log -w "ERROR: No snapshot backing store - create '$BACKING_STORE'" 1>&2
 			log "skipped creation of ufs snapshot for $2" 1>&2
+			echo $1
 		fi
 	else
 		log "skipped creation of ufs snapshot for $2" 1>&2
