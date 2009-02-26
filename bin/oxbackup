@@ -123,9 +123,10 @@ export ERRORS=0
 ERROR_CONFIG=1
 ERROR_TAPE=2
 ERROR_TOC=4
-ERROR_SNAPSHOT=8
-ERROR_PATH=16
-ERROR_BACKUP=32
+ERROR_SCRIPT=8
+ERROR_SNAPSHOT=16
+ERROR_PATH=32
+ERROR_BACKUP=64
 
 
 # Set remote command defaults
@@ -446,6 +447,11 @@ function script_process
 			if [[ "$1" == "$WHEN" && "$2" == "$FS" ]]; then
 				log "executing: ( $COMMAND )"
 				$SHELL -c "$COMMAND" 2>&1 | script_pipe
+				STATUS=$?
+				if (( STATUS > 0 )); then
+      		(( ERRORS |= ERROR_SCRIPT ))
+      		log -w "ERROR: script exited with status $STATUS" 1>&2
+      	fi
 			fi
 		done
 	else
@@ -469,6 +475,8 @@ function mail_subject
 			&& $PRINTF ", toc error"
 		(( ERRORS & ERROR_CONFIG )) \
 			&& $PRINTF ", misconfigured"
+		(( ERRORS & ERROR_SCRIPT )) \
+		  && $PRINTF ", script error"
 		(( ERRORS & ERROR_SNAPSHOT )) \
 			&& $PRINTF ", snapshot error"
 		(( ERRORS & ERROR_PATH )) \
