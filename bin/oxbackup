@@ -26,6 +26,7 @@ function usage
 		   -b path                  # backing-store for ufs snapshots (default: /snap)
 		   -B blocksize             # blocksize for mbuffer (default: 1024k)
 		   -t                       # dry run without tape
+		   -M snapsize              # fssnap maximum backing store (default: 512m)
 		   -n                       # ignore pre/post scripts
 		   -e                       # don't eject the tape
 		   -v                       # send script output to terminal
@@ -44,7 +45,7 @@ function usage
 	exit $1
 }
 
-while getopts b:B:cef:mnr:stu:vh c
+while getopts b:B:cef:M:mnr:stu:vh c
 do
 	case $c in
 	b)	BACKING_STORE=$OPTARG
@@ -56,6 +57,8 @@ do
 	e)	NO_EJECT=1
 		;;
 	f)	DUMP_DEVICE=$OPTARG
+		;;
+	M)	FSSNAP_MAXSIZE=$OPTARG
 		;;
 	m)	MAIL_LOG=1
 		;;
