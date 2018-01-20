@@ -387,6 +387,7 @@ Backup of csvledr1 [2012-08-23 01:10:06]
 1+1 records in
 1+1 records out
 ```
+
  3. Restore
 Below, the mt command is used to "Rewind, fast forward to beginning of file X". This operation has been seen to fail silently on csvleadm1's second tape drive. After running 
 ```
@@ -400,6 +401,7 @@ HP DAT-72 tape drive:
    file no= 1   block no= 0
 ```
 If you still get a zero ( 0 ) on the file no= entry then try a different tape drive
+
  3a. UFS restore:
 ```
 # mt -f /dev/rmt/1c asf 1
