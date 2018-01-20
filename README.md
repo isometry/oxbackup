@@ -13,7 +13,7 @@ With ZFS available, just create a filesystem at `/snap`.
 # zfs create pool/snap
 # zfs set mountpoint=/snap pool/snap
 # chmod 700 /snap
-``
+```
 
 Lacking ZFS, a symlink from `/snap` to `/var/tmp` will suffice (but see the note below):
 
