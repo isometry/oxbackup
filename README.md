@@ -407,7 +407,7 @@ If you still get a zero ( 0 ) on the file no= entry then try a different tape dr
 # mt -f /dev/rmt/1c asf 1
 # cd /restore_path
 # ufsrestore ivf /dev/rmt/1cn
-}}}
+```
 
  3b. ZFS restore
 ```
